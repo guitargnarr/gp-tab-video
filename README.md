@@ -29,7 +29,7 @@ Fully functional CLI tool. Renders a 3-min song in ~9 seconds at 30fps.
 - One-command composite over playthrough footage via `--video`
 - ProRes 4444 alpha output for NLE compositing
 - Customizable cursor color and width
-- Platform presets: YouTube, Instagram (Reels/Story/Feed/Carousel), Facebook (Reels/Story)
+- Platform presets: YouTube, Instagram, Facebook, TikTok
 - Vertical (9:16) video support with safe zone margins
 
 ## End Goal
@@ -130,6 +130,18 @@ As of June 2025, all Facebook videos are Reels -- there's no separate "feed vide
 All Facebook presets: 30fps, H.264, AAC 192kbps, 48kHz. File size: 4GB max.
 
 **Facebook vs Instagram safe zone warning:** Facebook's bottom safe zone is 672px (35% of 1920) vs Instagram's 320px (17%). Tab overlay placement is significantly higher on Facebook. The `--platform facebook` preset handles this automatically when compositing with `--video`.
+
+**TikTok:**
+
+TikTok recompresses all uploads -- upload at high quality and let their encoder do its thing.
+
+| Preset | Resolution | Aspect | Bitrate | Max Duration | Safe Zone | Notes |
+|--------|-----------|--------|---------|-------------|-----------|-------|
+| `tiktok` | 1080x1920 | 9:16 | 8 Mbps | 10 min (60 min upload) | 320px bottom, 108px top | Also 120px right (engagement buttons), 60px left. File: 287MB iOS, 72MB Android. |
+
+30fps, H.264, AAC 256kbps, 48kHz. TikTok safe zone is 900x1492px centered in the 1080x1920 frame.
+
+**TikTok vs Instagram:** Nearly identical safe zones (320px bottom, 108px top). Main differences: TikTok has a 120px right margin for engagement buttons (not an issue for bottom-positioned tab overlays), lower file size limits (287MB iOS vs 4GB), and heavier recompression on upload.
 
 ### All Options
 
@@ -253,6 +265,8 @@ ffmpeg stdin pipe ---- raw RGBA -> ProRes 4444 / H.264 (platform-optimized bitra
 - [Facebook video size & specs (2026)](https://www.aiarty.com/knowledge-base/facebook-video-size.htm)
 - [Facebook Reels dimensions (2026)](https://www.aiarty.com/knowledge-base/facebook-reel-size.htm)
 - [Facebook Reels safe zones (2026)](https://sendshort.ai/guides/facebook-reels-size/)
+- [TikTok video size & dimensions (2026)](https://fliki.ai/blog/tiktok-video-size)
+- [TikTok safe zones (2026)](https://kreatli.com/guides/tiktok-safe-zone)
 
 ## Dependencies
 

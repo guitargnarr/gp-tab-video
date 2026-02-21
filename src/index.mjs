@@ -17,6 +17,8 @@ import * as fs from 'fs';
 //   Facebook specs: https://www.aiarty.com/knowledge-base/facebook-video-size.htm
 //   Facebook Reels: https://www.aiarty.com/knowledge-base/facebook-reel-size.htm
 //   Facebook safe zones: https://sendshort.ai/guides/facebook-reels-size/
+//   TikTok specs: https://fliki.ai/blog/tiktok-video-size
+//   TikTok safe zones: https://kreatli.com/guides/tiktok-safe-zone
 const PLATFORM_PRESETS = {
   // YouTube landscape (16:9) -- standard playthrough format
   youtube: {
@@ -154,6 +156,27 @@ const PLATFORM_PRESETS = {
     safeMarginBottom: 250,
     safeMarginTop: 250,
     description: 'Facebook Story 1080x1920 9:16 (20s cards, 24hr)',
+  },
+  // --- TikTok formats ---
+  // Video (9:16 vertical) -- 1080x1920, up to 10 min (60 min for uploads).
+  // 30fps preferred (60fps supported but heavier compression).
+  // No official bitrate spec -- TikTok recompresses everything.
+  // File size: 287.6MB iOS, 72MB Android, 500MB via ads/web.
+  // Safe zone: 900x1492 centered -- 108px top, 320px bottom, 60px left, 120px right.
+  'tiktok': {
+    width: 1080,
+    fps: 30,
+    scale: 1.3,
+    cursorWidth: 3,
+    videoBitrate: '8M',     // upload high, TikTok recompresses anyway
+    audioBitrate: '256k',
+    audioSampleRate: 48000,
+    vertical: true,
+    // Safe zone: 108px top (username/sound), 320px bottom (captions/CTA),
+    // 60px left, 120px right (like/comment/share icons)
+    safeMarginBottom: 320,
+    safeMarginTop: 108,
+    description: 'TikTok 1080x1920 9:16 (up to 10 min, 60 min upload)',
   },
 };
 
