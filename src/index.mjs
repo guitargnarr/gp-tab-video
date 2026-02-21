@@ -4,6 +4,7 @@ import { renderStrip, NOTATION_ALIASES, STYLE_PRESETS } from './render-strip.mjs
 import { buildTimingMap } from './build-timing.mjs';
 import { generateFrames } from './generate-frames.mjs';
 import { createEncoder } from './encode-video.mjs';
+import { detectTuning } from './tuning.mjs';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -242,8 +243,11 @@ function parseArgs(argv) {
   opts.gpFile = positional[0];
   if (positional[1] && /^\d+(,\d+)*$/.test(positional[1])) {
     opts.tracks = positional[1].split(',').map((t) => parseInt(t, 10));
+    if (positional[2]) opts.output = positional[2];
+  } else if (positional[1]) {
+    // Not a track number -- treat as output file
+    opts.output = positional[1];
   }
-  if (positional[2]) opts.output = positional[2];
 
   // Apply platform preset (CLI flags override preset values)
   if (opts.platform) {
@@ -439,6 +443,17 @@ async function main() {
   console.log(`  Tempo: ${score.tempo} BPM`);
   console.log(`  Bars: ${score.masterBars.length}`);
 
+  // Display tuning info for selected tracks
+  for (const t of opts.tracks) {
+    const track = score.tracks[t];
+    const staff = track.staves[0];
+    const tunings = staff?.stringTuning?.tunings || [];
+    if (tunings.length > 0) {
+      const { name, notes } = detectTuning(tunings, tunings.length);
+      console.log(`  Track ${t} tuning: ${name} (${notes})`);
+    }
+  }
+
   for (const t of opts.tracks) {
     if (t >= score.tracks.length) {
       console.error(`\nError: Track ${t} does not exist. Available: 0-${score.tracks.length - 1}`);
@@ -470,11 +485,14 @@ async function main() {
     );
     console.log(`  Strip size: ${totalWidth}x${totalHeight}px`);
 
-    const { beatTimings, songDurationMs } = buildTimingMap(score, boundsLookup, trackIdx);
+    const { beatTimings, songDurationMs, sectionMarkers } = buildTimingMap(score, boundsLookup, trackIdx);
     console.log(`  Beats mapped: ${beatTimings.length}`);
     console.log(`  Song duration: ${(songDurationMs / 1000).toFixed(1)}s`);
+    if (sectionMarkers && sectionMarkers.length > 0) {
+      console.log(`  Section markers: ${sectionMarkers.length} (${sectionMarkers.map(m => m.text).join(', ')})`);
+    }
 
-    strips.push({ trackIdx, pngBuffer, totalWidth, totalHeight, beatTimings, songDurationMs });
+    strips.push({ trackIdx, pngBuffer, totalWidth, totalHeight, beatTimings, songDurationMs, sectionMarkers });
   }
 
   // Use the longest duration across tracks
@@ -541,6 +559,7 @@ async function main() {
         viewportWidth,
         cursorColor: cursorRgb,
         cursorWidth: opts.cursorWidth,
+        sectionMarkers: s.sectionMarkers || [],
       }
     )) {
       await encoder.write(buffer);
@@ -559,6 +578,7 @@ async function main() {
         viewportWidth,
         cursorColor: cursorRgb,
         cursorWidth: opts.cursorWidth,
+        sectionMarkers: s.sectionMarkers || [],
       })
     );
 

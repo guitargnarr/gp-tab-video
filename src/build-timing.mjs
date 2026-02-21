@@ -69,7 +69,66 @@ export function buildTimingMap(score, boundsLookup, trackIndex = 0) {
   const songEndTick = lastMasterBar.start + lastMasterBar.calculateDuration();
   const songDurationMs = tickToMs(songEndTick);
 
-  return { beatTimings, songDurationMs, tickToMs };
+  // Extract section markers with pixel positions and timing
+  const sectionMarkers = buildSectionMarkers(score, boundsLookup, tickToMs);
+
+  return { beatTimings, songDurationMs, tickToMs, sectionMarkers };
+}
+
+/**
+ * Extract section markers (Intro, Verse, Chorus, etc.) with pixel X positions and timing.
+ * Only includes markers that have non-empty text.
+ */
+function buildSectionMarkers(score, boundsLookup, tickToMs) {
+  const markers = [];
+  const system = boundsLookup?.staffSystems?.[0];
+  if (!system) return markers;
+
+  for (let i = 0; i < score.masterBars.length; i++) {
+    const mb = score.masterBars[i];
+    if (!mb.section) continue;
+
+    const text = (mb.section.text || mb.section.marker || '').trim();
+    if (!text) continue;
+
+    // Find the pixel X position for this bar
+    const barBounds = system.bars[i];
+    if (!barBounds) continue;
+
+    const pixelX = barBounds.visualBounds.x;
+    const ms = tickToMs(mb.start);
+
+    // Find the end of this section (start of next section or end of song)
+    let endMs = tickToMs(score.masterBars[score.masterBars.length - 1].start +
+      score.masterBars[score.masterBars.length - 1].calculateDuration());
+    let endPixelX = system.bars[system.bars.length - 1].visualBounds.x +
+      system.bars[system.bars.length - 1].visualBounds.w;
+
+    for (let j = i + 1; j < score.masterBars.length; j++) {
+      const nextMb = score.masterBars[j];
+      if (nextMb.section) {
+        const nextText = (nextMb.section.text || nextMb.section.marker || '').trim();
+        if (nextText) {
+          endMs = tickToMs(nextMb.start);
+          const nextBarBounds = system.bars[j];
+          if (nextBarBounds) endPixelX = nextBarBounds.visualBounds.x;
+          break;
+        }
+      }
+    }
+
+    markers.push({
+      text,
+      barIndex: i,
+      barNumber: i + 1,
+      pixelX,
+      endPixelX,
+      ms,
+      endMs,
+    });
+  }
+
+  return markers;
 }
 
 function buildTimingFromScoreModel(score, trackIndex, tickToMs) {

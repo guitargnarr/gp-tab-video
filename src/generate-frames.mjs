@@ -12,6 +12,7 @@ export async function* generateFrames(
   const viewportWidth = opts.viewportWidth || 1920;
   const cursorWidth = opts.cursorWidth || 3;
   const cursorColor = opts.cursorColor || { r: 255, g: 50, b: 50 };
+  const sectionMarkers = opts.sectionMarkers || [];
 
   const totalFrames = Math.ceil((songDurationMs / 1000) * fps);
   const cursorX = Math.floor(viewportWidth / 3);
@@ -93,6 +94,55 @@ export async function* generateFrames(
     }
   }
 
+  // Pre-render section marker labels onto the strip (one-time cost).
+  // Burns text directly into the raw pixel buffer so the frame loop stays fast.
+  if (sectionMarkers.length > 0) {
+    const labelHeight = 20;
+    const fontSize = 14;
+    const padding = 6;
+
+    for (const marker of sectionMarkers) {
+      const textWidth = marker.text.length * (fontSize * 0.62); // approximate
+      const boxWidth = Math.ceil(textWidth + padding * 2);
+      const boxHeight = labelHeight + padding;
+      const startX = Math.round(marker.pixelX);
+
+      if (startX < 0 || startX >= actualWidth) continue;
+
+      // Render label as SVG -> raw RGBA via sharp
+      const svg = `<svg width="${boxWidth}" height="${boxHeight}">
+        <rect x="0" y="0" width="${boxWidth}" height="${boxHeight}" rx="3" fill="rgba(0,0,0,0.6)"/>
+        <text x="${padding}" y="${fontSize + 2}" font-family="Helvetica,Arial,sans-serif" font-size="${fontSize}" font-weight="bold" fill="white">${escapeXml(marker.text)}</text>
+      </svg>`;
+
+      try {
+        const labelBuf = await sharp(Buffer.from(svg)).ensureAlpha().raw().toBuffer();
+        const labelW = boxWidth;
+        const labelH = boxHeight;
+        const yPos = 2; // near top of strip
+
+        // Alpha-blend label onto strip raw pixels
+        for (let ly = 0; ly < labelH && (yPos + ly) < actualHeight; ly++) {
+          for (let lx = 0; lx < labelW && (startX + lx) < actualWidth; lx++) {
+            const srcIdx = (ly * labelW + lx) * channels;
+            const dstIdx = ((yPos + ly) * actualWidth + (startX + lx)) * channels;
+
+            const sa = labelBuf[srcIdx + 3] / 255;
+            if (sa === 0) continue;
+            const ia = 1 - sa;
+
+            stripRaw[dstIdx]     = Math.round(labelBuf[srcIdx] * sa + stripRaw[dstIdx] * ia);
+            stripRaw[dstIdx + 1] = Math.round(labelBuf[srcIdx + 1] * sa + stripRaw[dstIdx + 1] * ia);
+            stripRaw[dstIdx + 2] = Math.round(labelBuf[srcIdx + 2] * sa + stripRaw[dstIdx + 2] * ia);
+            stripRaw[dstIdx + 3] = Math.min(255, Math.round(labelBuf[srcIdx + 3] + stripRaw[dstIdx + 3] * ia));
+          }
+        }
+      } catch (e) {
+        // Skip label on render failure (non-critical)
+      }
+    }
+  }
+
   // Fallback pixel mapping
   if (beatTimings.length > 0 && beatTimings[0].barProgress !== undefined) {
     for (const bt of beatTimings) {
@@ -162,6 +212,11 @@ export async function* generateFrames(
       height: viewportHeight,
     };
   }
+}
+
+function escapeXml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
 
 function interpolateX(beatTimings, timeMs) {

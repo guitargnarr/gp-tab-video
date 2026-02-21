@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>gp-tab-video Preview</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #141414; color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+
+    .toolbar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 20px; background: #1a1a1a; border-bottom: 1px solid #333;
+      flex-wrap: wrap;
+    }
+    .toolbar label { font-size: 13px; color: #aaa; }
+    .toolbar select, .toolbar input[type="file"] {
+      background: #222; color: #fff; border: 1px solid #444; border-radius: 4px;
+      padding: 4px 8px; font-size: 13px;
+    }
+    .toolbar button {
+      background: #c33; color: #fff; border: none; border-radius: 4px;
+      padding: 6px 14px; cursor: pointer; font-size: 13px; font-weight: 600;
+    }
+    .toolbar button:hover { background: #e44; }
+    .toolbar button:disabled { background: #444; cursor: not-allowed; }
+    .toolbar .spacer { flex: 1; }
+
+    .info { padding: 8px 20px; font-size: 12px; color: #888; background: #111; }
+    .info span { margin-right: 16px; }
+
+    #alphaTab {
+      width: 100%; overflow: hidden;
+      position: relative;
+    }
+
+    /* alphaTab default dark theme overrides */
+    .at-surface { background: #141414 !important; }
+    .at-cursor-bar { background: rgba(255, 50, 50, 0.08) !important; }
+    .at-cursor-beat {
+      background: rgba(255, 50, 50, 0.9) !important;
+      width: 3px !important;
+    }
+    .at-selection { background: rgba(255, 50, 50, 0.1) !important; }
+
+    .drop-zone {
+      display: flex; align-items: center; justify-content: center;
+      height: 300px; margin: 40px; border: 2px dashed #444; border-radius: 12px;
+      font-size: 18px; color: #666;
+    }
+    .drop-zone.dragover { border-color: #c33; color: #c33; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <input type="file" id="fileInput" accept=".gp,.gp3,.gp4,.gp5,.gp6,.gp7,.gpx">
+  <label>Track:</label>
+  <select id="trackSelect"></select>
+  <label>Layout:</label>
+  <select id="layoutSelect">
+    <option value="horizontal">Horizontal (video preview)</option>
+    <option value="page">Page (reading)</option>
+  </select>
+  <div class="spacer"></div>
+  <button id="playBtn" disabled>Play</button>
+  <button id="stopBtn" disabled>Stop</button>
+</div>
+
+<div class="info" id="infoBar">
+  <span>Load a Guitar Pro file to preview</span>
+</div>
+
+<div id="dropZone" class="drop-zone">
+  Drop a Guitar Pro file here, or use the file picker above
+</div>
+
+<div id="alphaTab" class="hidden"></div>
+
+<script type="module">
+  // Load alphaTab from node_modules (served by the preview server)
+  const script = document.createElement('script');
+  script.src = '/node_modules/@coderline/alphatab/dist/alphaTab.js';
+  script.onload = () => initApp();
+  document.head.appendChild(script);
+
+  let api = null;
+
+  function initApp() {
+    const fileInput = document.getElementById('fileInput');
+    const trackSelect = document.getElementById('trackSelect');
+    const layoutSelect = document.getElementById('layoutSelect');
+    const playBtn = document.getElementById('playBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const infoBar = document.getElementById('infoBar');
+    const dropZone = document.getElementById('dropZone');
+    const container = document.getElementById('alphaTab');
+
+    // Drag and drop
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) loadFile(e.dataTransfer.files[0]);
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length > 0) loadFile(fileInput.files[0]);
+    });
+
+    // Check for server-provided file
+    fetch('/api/file-info').then(r => r.json()).then(info => {
+      if (info.file) {
+        infoBar.innerHTML = `<span>Loading ${info.file}...</span>`;
+        loadFromUrl('/api/file');
+      }
+    }).catch(() => {});
+
+    async function loadFile(file) {
+      const buffer = await file.arrayBuffer();
+      initAlphaTab(new Uint8Array(buffer), file.name);
+    }
+
+    async function loadFromUrl(url) {
+      const resp = await fetch(url);
+      const buffer = await resp.arrayBuffer();
+      const filename = url.split('/').pop() || 'score';
+      initAlphaTab(new Uint8Array(buffer), filename);
+    }
+
+    function initAlphaTab(data, filename) {
+      dropZone.classList.add('hidden');
+      container.classList.remove('hidden');
+      container.style.height = (window.innerHeight - 90) + 'px';
+
+      if (api) {
+        api.destroy();
+        container.innerHTML = '';
+      }
+
+      const settings = new alphaTab.Settings();
+      settings.core.fontDirectory = '/node_modules/@coderline/alphatab/dist/font/';
+      settings.player.enablePlayer = true;
+      settings.player.enableCursor = true;
+      settings.player.enableUserInteraction = true;
+      settings.player.scrollMode = alphaTab.ScrollMode.Continuous;
+      settings.player.soundFont = '/node_modules/@coderline/alphatab/dist/soundfont/sonivox.sf2';
+      settings.display.layoutMode = alphaTab.LayoutMode.Horizontal;
+
+      // Dark theme colors
+      const res = settings.display.resources;
+      res.mainGlyphColor = new alphaTab.model.Color(255, 255, 255, 255);
+      res.staffLineColor = new alphaTab.model.Color(180, 180, 180, 255);
+      res.barSeparatorColor = new alphaTab.model.Color(100, 100, 100, 255);
+      res.barNumberColor = new alphaTab.model.Color(180, 180, 180, 255);
+      res.secondaryGlyphColor = new alphaTab.model.Color(180, 180, 180, 200);
+      res.scoreInfoColor = new alphaTab.model.Color(255, 255, 255, 255);
+
+      api = new alphaTab.AlphaTabApi(container, settings);
+
+      api.scoreLoaded.on((score) => {
+        // Populate track selector
+        trackSelect.innerHTML = '';
+        score.tracks.forEach((t, i) => {
+          const opt = document.createElement('option');
+          opt.value = i;
+          opt.textContent = `[${i}] ${t.name}`;
+          trackSelect.appendChild(opt);
+        });
+
+        // Tab-only
+        for (const track of score.tracks) {
+          for (const staff of track.staves) {
+            staff.showTablature = true;
+            staff.showStandardNotation = false;
+          }
+        }
+
+        // Update info bar
+        const tempo = score.tempo;
+        const bars = score.masterBars.length;
+        infoBar.innerHTML = `
+          <span>${filename}</span>
+          <span>${score.title || '(untitled)'}</span>
+          <span>${tempo} BPM</span>
+          <span>${bars} bars</span>
+          <span>${score.tracks.length} tracks</span>
+        `;
+
+        playBtn.disabled = false;
+        stopBtn.disabled = false;
+      });
+
+      api.load(data);
+
+      trackSelect.addEventListener('change', () => {
+        const idx = parseInt(trackSelect.value);
+        api.renderTracks([api.score.tracks[idx]]);
+      });
+
+      layoutSelect.addEventListener('change', () => {
+        api.settings.display.layoutMode = layoutSelect.value === 'horizontal'
+          ? alphaTab.LayoutMode.Horizontal
+          : alphaTab.LayoutMode.Page;
+        api.updateSettings();
+        api.render();
+      });
+
+      playBtn.addEventListener('click', () => {
+        if (api.playerState === alphaTab.synth.PlayerState.Playing) {
+          api.pause();
+          playBtn.textContent = 'Play';
+        } else {
+          api.play();
+          playBtn.textContent = 'Pause';
+        }
+      });
+
+      stopBtn.addEventListener('click', () => {
+        api.stop();
+        playBtn.textContent = 'Play';
+      });
+    }
+
+    // Resize handler
+    window.addEventListener('resize', () => {
+      if (container.classList.contains('hidden')) return;
+      container.style.height = (window.innerHeight - 90) + 'px';
+    });
+  }
+</script>
+</body>
+</html>
