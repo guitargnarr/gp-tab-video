@@ -9,6 +9,52 @@ const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 const Color = alphaTab.model.Color;
 
+// Pre-defined track color palettes for multi-track rendering.
+// Each palette: { main, staffLine, barNumber, secondary, barSep }
+// Inspired by ERRA/Jackson Guitars playthrough videos.
+const TRACK_PALETTES = [
+  // Track 0: White (default -- lead guitar)
+  {
+    main:      [255, 255, 255],
+    staffLine: [180, 180, 180],
+    barNumber: [180, 180, 180],
+    secondary: [180, 180, 180],
+    barSep:    [100, 100, 100],
+  },
+  // Track 1: Pink/Magenta (rhythm guitar)
+  {
+    main:      [255, 150, 180],
+    staffLine: [200, 100, 130],
+    barNumber: [200, 100, 130],
+    secondary: [200, 100, 130],
+    barSep:    [120, 60,  80],
+  },
+  // Track 2: Cyan/Teal (harmony / clean)
+  {
+    main:      [100, 255, 255],
+    staffLine: [70,  180, 180],
+    barNumber: [70,  180, 180],
+    secondary: [70,  180, 180],
+    barSep:    [40,  100, 100],
+  },
+  // Track 3: Gold/Amber (bass)
+  {
+    main:      [255, 210, 100],
+    staffLine: [180, 150, 70],
+    barNumber: [180, 150, 70],
+    secondary: [180, 150, 70],
+    barSep:    [100, 80,  40],
+  },
+  // Track 4: Green (additional)
+  {
+    main:      [100, 255, 130],
+    staffLine: [70,  180, 90],
+    barNumber: [70,  180, 90],
+    secondary: [70,  180, 90],
+    barSep:    [40,  100, 50],
+  },
+];
+
 /**
  * @param {object} score - alphaTab Score object
  * @param {object} settings - alphaTab Settings object
@@ -16,10 +62,12 @@ const Color = alphaTab.model.Color;
  * @param {object} opts - rendering options
  * @param {boolean} opts.transparent - true for translucent overlay mode (alpha bg + white notation)
  * @param {number} opts.scale - notation scale factor (default 1.0, try 1.3-1.5 for larger tab numbers)
+ * @param {number} opts.trackColorIndex - index into TRACK_PALETTES for multi-track color coding
  */
 export async function renderStrip(score, settings, trackIndex = 0, opts = {}) {
   const transparent = opts.transparent ?? false;
   const scale = opts.scale ?? 1.0;
+  const colorIndex = opts.trackColorIndex ?? 0;
 
   // Initialize alphaSkia with Bravura music font (OTF)
   const bravuraPath = path.join(
@@ -42,18 +90,18 @@ export async function renderStrip(score, settings, trackIndex = 0, opts = {}) {
     }
   }
 
-  // White notation colors for contrast on dark/transparent backgrounds
+  // Apply track color palette for multi-track differentiation
+  const palette = TRACK_PALETTES[colorIndex % TRACK_PALETTES.length];
   const res = settings.display.resources;
-  const white = new Color(255, 255, 255, 255);
-  const lightGray = new Color(180, 180, 180, 255);
-  const dimGray = new Color(100, 100, 100, 255);
+  const c = (rgb) => new Color(rgb[0], rgb[1], rgb[2], 255);
+  const cAlpha = (rgb, a) => new Color(rgb[0], rgb[1], rgb[2], a);
 
-  res.mainGlyphColor = white;           // Tab numbers, note heads
-  res.staffLineColor = lightGray;        // String lines
-  res.barSeparatorColor = dimGray;       // Bar lines
-  res.barNumberColor = lightGray;        // Bar numbers
-  res.secondaryGlyphColor = lightGray;   // Secondary notation elements
-  res.scoreInfoColor = white;            // Title/metadata
+  res.mainGlyphColor = c(palette.main);           // Tab numbers, note heads, P.M., H, etc.
+  res.staffLineColor = c(palette.staffLine);       // String lines
+  res.barSeparatorColor = c(palette.barSep);       // Bar lines
+  res.barNumberColor = c(palette.barNumber);       // Bar numbers
+  res.secondaryGlyphColor = cAlpha(palette.secondary, 200); // Secondary notation elements
+  res.scoreInfoColor = c(palette.main);            // Title/metadata
 
   // Create renderer with large width to prevent wrapping
   const renderer = new alphaTab.rendering.ScoreRenderer(settings);

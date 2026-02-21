@@ -349,10 +349,13 @@ async function main() {
   }
 
   // Render each track as a strip
+  const multiTrack = opts.tracks.length > 1;
   const strips = [];
-  for (const trackIdx of opts.tracks) {
+  for (let ti = 0; ti < opts.tracks.length; ti++) {
+    const trackIdx = opts.tracks[ti];
     const mode = opts.transparent ? 'transparent' : 'dark bg';
-    console.log(`\nRendering track ${trackIdx}: ${score.tracks[trackIdx].name} [${mode}]...`);
+    const colorLabel = multiTrack ? ` [color ${ti}]` : '';
+    console.log(`\nRendering track ${trackIdx}: ${score.tracks[trackIdx].name} [${mode}]${colorLabel}...`);
 
     // Clone settings for each track render (avoid mutation)
     const { settings: freshSettings } = await loadScore(opts.gpFile);
@@ -360,7 +363,11 @@ async function main() {
       score,
       freshSettings,
       trackIdx,
-      { transparent: opts.transparent, scale: opts.scale }
+      {
+        transparent: opts.transparent,
+        scale: opts.scale,
+        trackColorIndex: multiTrack ? ti : 0,
+      }
     );
     console.log(`  Strip size: ${totalWidth}x${totalHeight}px`);
 

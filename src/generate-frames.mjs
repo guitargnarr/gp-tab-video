@@ -27,6 +27,72 @@ export async function* generateFrames(
 
   const viewportHeight = actualHeight;
 
+  // Remove "rendered by alphaTab" watermark text from the strip.
+  // The watermark appears below the staff content at the bottom of the strip,
+  // and also past the last beat horizontally. We detect it by scanning from
+  // the bottom up: find rows with content separated from the main staff by a gap.
+  {
+    // 1. Blank pixels past the last beat (horizontal watermark at end of strip)
+    if (beatTimings.length > 0) {
+      const lastBeatX = Math.ceil(beatTimings[beatTimings.length - 1].pixelX);
+      const blankStart = Math.min(lastBeatX + 50, actualWidth);
+      if (blankStart < actualWidth) {
+        for (let y = 0; y < actualHeight; y++) {
+          const rowStart = y * stripRowBytes + blankStart * channels;
+          const rowEnd = y * stripRowBytes + actualWidth * channels;
+          stripRaw.fill(0, rowStart, rowEnd);
+        }
+      }
+    }
+
+    // 2. Blank watermark text below the staff (vertical -- bottom of strip)
+    // Scan rows bottom-up to find the lowest row with non-black pixels,
+    // then find the gap between that text and the staff content above it.
+    // Blank everything below the gap.
+    const rowHasContent = (y) => {
+      // Sample every 5px across first 500px (watermark is always at the start)
+      for (let x = 0; x < Math.min(500, actualWidth); x += 5) {
+        const offset = y * stripRowBytes + x * channels;
+        const r = stripRaw[offset], g = stripRaw[offset + 1], b = stripRaw[offset + 2], a = stripRaw[offset + 3];
+        if (a > 10 && (r > 30 || g > 30 || b > 30)) return true;
+      }
+      return false;
+    };
+
+    // Find the bottom-most row with any content
+    let bottomContentRow = -1;
+    for (let y = actualHeight - 1; y >= 0; y--) {
+      if (rowHasContent(y)) { bottomContentRow = y; break; }
+    }
+
+    if (bottomContentRow > 0) {
+      // Scan upward from the watermark text to find the gap (empty rows)
+      let gapTop = bottomContentRow;
+      for (let y = bottomContentRow; y >= 0; y--) {
+        if (!rowHasContent(y)) {
+          // Found start of gap -- check if there's content above (the staff)
+          let staffAbove = false;
+          for (let y2 = y - 1; y2 >= Math.max(0, y - 20); y2--) {
+            if (rowHasContent(y2)) { staffAbove = true; break; }
+          }
+          if (staffAbove) {
+            gapTop = y;
+            break;
+          }
+        }
+      }
+
+      // Blank everything from gapTop down
+      if (gapTop < actualHeight) {
+        for (let y = gapTop; y < actualHeight; y++) {
+          const rowStart = y * stripRowBytes;
+          const rowEnd = rowStart + stripRowBytes;
+          stripRaw.fill(0, rowStart, rowEnd);
+        }
+      }
+    }
+  }
+
   // Fallback pixel mapping
   if (beatTimings.length > 0 && beatTimings[0].barProgress !== undefined) {
     for (const bt of beatTimings) {
