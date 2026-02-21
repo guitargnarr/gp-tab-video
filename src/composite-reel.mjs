@@ -154,9 +154,12 @@ async function main() {
     }
   }
 
-  // 5. Setup background renderer
+  // 5. Setup background renderer (half res for performance, ffmpeg upscales)
   console.log('\nInitializing background animation...');
-  const bgRenderer = createNeonRenderer(W, H, fps);
+  const bgScale = 2;
+  const bgW = Math.round(W / bgScale);
+  const bgH = Math.round(H / bgScale);
+  const bgRenderer = createNeonRenderer(bgW, bgH, fps);
 
   // 6. Tab viewport dimensions
   const tabViewportWidth = W;
@@ -169,38 +172,42 @@ async function main() {
 
   console.log(`  Tab viewport: ${tabViewportWidth}x${tabHeight}px at y=${tabY}`);
 
-  // 7. Setup ffmpeg encoder
+  // 7. Setup ffmpeg with two raw input pipes -- let ffmpeg do the overlay compositing
   await fs.promises.mkdir(path.dirname(outputFile), { recursive: true });
 
+  // Pipe 0 (fd 3): background frames (full size W x H)
+  // Pipe 1 (fd 4): tab frames (W x tabHeight, positioned by ffmpeg overlay filter)
   const ffmpeg = spawn('/opt/homebrew/bin/ffmpeg', [
     '-y',
-    '-f', 'rawvideo',
-    '-pix_fmt', 'rgba',
-    '-s', `${W}x${H}`,
-    '-r', String(fps),
-    '-i', 'pipe:0',
-    '-c:v', 'libx264',
-    '-pix_fmt', 'yuv420p',
-    '-b:v', bitrate,
-    '-maxrate', bitrate,
-    '-bufsize', bitrate,
-    '-preset', 'medium',
-    '-movflags', '+faststart',
+    // Input 0: background (half res, upscaled by filter)
+    '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${bgW}x${bgH}`, '-r', String(fps), '-i', 'pipe:3',
+    // Input 1: tab overlay
+    '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${tabViewportWidth}x${tabHeight}`, '-r', String(fps), '-i', 'pipe:4',
+    // Upscale bg to full res, then overlay tab
+    '-filter_complex', `[0:v]scale=${W}:${H}:flags=lanczos[bg];[bg][1:v]overlay=0:${tabY}:format=auto`,
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-b:v', bitrate, '-maxrate', bitrate, '-bufsize', bitrate,
+    '-preset', 'medium', '-movflags', '+faststart',
     outputFile,
-  ], { stdio: ['pipe', 'inherit', 'inherit'] });
-
-  const writeFrame = (buf) => new Promise((resolve, reject) => {
-    if (!ffmpeg.stdin.write(buf)) {
-      ffmpeg.stdin.once('drain', resolve);
-    } else {
-      resolve();
-    }
+  ], {
+    stdio: ['pipe', 'inherit', 'inherit', 'pipe', 'pipe'],
   });
 
-  // 8. Generate frames: composite bg + tab
+  const bgPipe = ffmpeg.stdio[3];
+  const tabPipe = ffmpeg.stdio[4];
+
+  const writeBg = (buf) => new Promise((resolve) => {
+    if (!bgPipe.write(buf)) bgPipe.once('drain', resolve);
+    else resolve();
+  });
+  const writeTab = (buf) => new Promise((resolve) => {
+    if (!tabPipe.write(buf)) tabPipe.once('drain', resolve);
+    else resolve();
+  });
+
+  // 8. Generate frames: pipe bg and tab separately to ffmpeg
   console.log(`\nRendering ${totalFrames} frames...`);
 
-  // Pre-generate tab frame iterators
   const tabGenerators = strips.map(s =>
     generateFrames(s.pngBuffer, s.beatTimings, songDurationMs, s.totalWidth, s.totalHeight, {
       fps,
@@ -212,47 +219,38 @@ async function main() {
   );
   const tabIterators = tabGenerators.map(g => g[Symbol.asyncIterator]());
 
-  const compositeBuffer = Buffer.alloc(W * H * 4);
+  // For multi-track: stack tab frames with sharp (only tab-height, not full frame)
+  const multiTrack = strips.length > 1;
 
   for (let frame = 0; frame < totalFrames; frame++) {
-    // Render background
+    // Background frame
     const bgFrame = bgRenderer.renderFrame();
+    await writeBg(bgFrame);
 
-    // Copy background into composite buffer
-    bgFrame.copy(compositeBuffer);
-
-    // Get tab frame(s)
-    const tabResults = await Promise.all(tabIterators.map(it => it.next()));
-
-    // Composite tab strips onto background
-    let yOff = tabY;
-    for (let ti = 0; ti < tabResults.length; ti++) {
-      if (tabResults[ti].done) continue;
-      const { buffer: tabBuf, width: tw, height: th } = tabResults[ti].value;
-
-      // Alpha-blend tab onto composite, row by row
-      for (let y = 0; y < th; y++) {
-        const dstY = yOff + y;
-        if (dstY < 0 || dstY >= H) continue;
-
-        for (let x = 0; x < tw && x < W; x++) {
-          const srcIdx = (y * tw + x) * 4;
-          const dstIdx = (dstY * W + x) * 4;
-
-          const sa = tabBuf[srcIdx + 3] / 255;
-          if (sa === 0) continue;
-
-          const ia = 1 - sa;
-          compositeBuffer[dstIdx]     = Math.round(tabBuf[srcIdx]     * sa + compositeBuffer[dstIdx]     * ia);
-          compositeBuffer[dstIdx + 1] = Math.round(tabBuf[srcIdx + 1] * sa + compositeBuffer[dstIdx + 1] * ia);
-          compositeBuffer[dstIdx + 2] = Math.round(tabBuf[srcIdx + 2] * sa + compositeBuffer[dstIdx + 2] * ia);
-          compositeBuffer[dstIdx + 3] = 255;
-        }
+    // Tab frame(s)
+    if (!multiTrack) {
+      const result = await tabIterators[0].next();
+      if (!result.done) {
+        await writeTab(Buffer.from(result.value.buffer));
       }
-      yOff += th + 4; // 4px gap between tracks
+    } else {
+      // Stack multiple tracks into one tab-height frame
+      const results = await Promise.all(tabIterators.map(it => it.next()));
+      const gap = 4;
+      const stackBuf = Buffer.alloc(tabViewportWidth * tabHeight * 4);
+      let yOff = 0;
+      for (const r of results) {
+        if (r.done) continue;
+        const { buffer: tbuf, width: tw, height: th } = r.value;
+        for (let y = 0; y < th; y++) {
+          const srcStart = y * tw * 4;
+          const dstStart = (yOff + y) * tabViewportWidth * 4;
+          Buffer.from(tbuf).copy(stackBuf, dstStart, srcStart, srcStart + tw * 4);
+        }
+        yOff += th + gap;
+      }
+      await writeTab(stackBuf);
     }
-
-    await writeFrame(compositeBuffer);
 
     if ((frame + 1) % 30 === 0 || frame === totalFrames - 1) {
       const pct = ((frame + 1) / totalFrames * 100).toFixed(0);
@@ -261,8 +259,9 @@ async function main() {
   }
 
   // Finish
+  bgPipe.end();
+  tabPipe.end();
   await new Promise((resolve) => {
-    ffmpeg.stdin.end();
     ffmpeg.on('close', resolve);
   });
 
