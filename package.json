@@ -7,9 +7,10 @@
     "start": "node src/index.mjs"
   },
   "dependencies": {
-    "@coderline/alphatab": "^1.8.1",
     "@coderline/alphaskia": "^3.4.135",
     "@coderline/alphaskia-macos": "^3.4.135",
+    "@coderline/alphatab": "^1.8.1",
+    "@napi-rs/canvas": "^0.1.94",
     "sharp": "^0.33.0"
   }
 }
