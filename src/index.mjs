@@ -11,8 +11,9 @@ import * as fs from 'fs';
 // Sources:
 //   YouTube: https://support.google.com/youtube/answer/1722171
 //   YouTube Shorts: https://vidiq.com/blog/post/youtube-shorts-vertical-video/
-//   Instagram Reels: https://www.stayabundant.com/blog/best-instagram-reels-export-settings
+//   Instagram specs: https://socialrails.com/blog/instagram-video-size-format-specifications-guide
 //   Instagram safe zones: https://zeely.ai/blog/master-instagram-safe-zones/
+//   Instagram carousel: https://www.overvisual.com/tools/instagram-carousel-size
 const PLATFORM_PRESETS = {
   // YouTube landscape (16:9) -- standard playthrough format
   youtube: {
@@ -20,7 +21,7 @@ const PLATFORM_PRESETS = {
     fps: 30,
     scale: 1.0,
     cursorWidth: 3,
-    // H.264, CRF 18 (~8-12 Mbps), AAC 384kbps stereo, 48kHz
+    // H.264, AAC 384kbps stereo, 48kHz
     videoBitrate: '12M',
     audioBitrate: '384k',
     audioSampleRate: 48000,
@@ -50,33 +51,71 @@ const PLATFORM_PRESETS = {
     safeMarginBottom: 200,  // px from bottom to avoid UI overlap
     description: 'YouTube Shorts 1080x1920 9:16 (max 3 min)',
   },
-  // Instagram Reels (9:16 vertical) -- 1080x1920, max 3 min
-  // IG does NOT support 4K; caps at 1080p. 30fps recommended over 60fps.
+  // --- Instagram formats ---
+  // Reels (9:16 vertical) -- 1080x1920, up to 15 min (updated Oct 2024)
+  // IG caps at 1080p. 30fps recommended. Bitrate 4-6 Mbps per IG spec.
   'instagram': {
     width: 1080,
     fps: 30,
     scale: 1.3,
     cursorWidth: 3,
-    videoBitrate: '8M',
+    videoBitrate: '6M',
     audioBitrate: '256k',
     audioSampleRate: 48000,
     vertical: true,
-    // Safe zone: 320px from bottom, 108px from top (captions, buttons)
+    // Safe zone: 320px from bottom (captions, buttons), 108px from top (profile bar)
     safeMarginBottom: 320,
     safeMarginTop: 108,
-    description: 'Instagram Reels 1080x1920 9:16 (max 3 min)',
+    description: 'Instagram Reels 1080x1920 9:16 (up to 15 min)',
   },
-  // Instagram feed post (4:5 portrait) -- cropped from 9:16 in feed
+  // Stories (9:16 vertical) -- 1080x1920, 60 sec/segment, 24hr lifespan
+  // Lower bitrate (3-4 Mbps). Tighter safe zone -- 250px top AND bottom.
+  'instagram-story': {
+    width: 1080,
+    fps: 30,
+    scale: 1.3,
+    cursorWidth: 3,
+    videoBitrate: '4M',
+    audioBitrate: '256k',
+    audioSampleRate: 48000,
+    maxFileSize: '100MB',
+    vertical: true,
+    // Safe zone: 250px from top (profile bar, close button) and bottom (reply bar, stickers)
+    safeMarginBottom: 250,
+    safeMarginTop: 250,
+    description: 'Instagram Story 1080x1920 9:16 (60s segments, 24hr)',
+  },
+  // Feed post (4:5 portrait) -- 1080x1350, max 90 sec
+  // NOT 9:16. This is what appears in the main feed grid. 4:5 gets max engagement.
   'instagram-feed': {
     width: 1080,
     fps: 30,
     scale: 1.3,
     cursorWidth: 3,
-    videoBitrate: '8M',
+    videoBitrate: '5M',
+    audioBitrate: '256k',
+    audioSampleRate: 48000,
+    maxFileSize: '100MB',
+    vertical: true,
+    // No major safe zone issues at 4:5, just 50px from edges
+    safeMarginBottom: 50,
+    safeMarginTop: 50,
+    description: 'Instagram Feed 1080x1350 4:5 (max 90s)',
+  },
+  // Carousel (4:5 portrait) -- same as feed, 60 sec/slide, up to 20 slides
+  // All slides MUST share the same aspect ratio.
+  'instagram-carousel': {
+    width: 1080,
+    fps: 30,
+    scale: 1.3,
+    cursorWidth: 3,
+    videoBitrate: '5M',
     audioBitrate: '256k',
     audioSampleRate: 48000,
     vertical: true,
-    description: 'Instagram Feed 1080x1350 4:5',
+    safeMarginBottom: 50,
+    safeMarginTop: 50,
+    description: 'Instagram Carousel 1080x1350 4:5 (60s/slide, 20 slides)',
   },
 };
 

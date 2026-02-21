@@ -29,7 +29,7 @@ Fully functional CLI tool. Renders a 3-min song in ~9 seconds at 30fps.
 - One-command composite over playthrough footage via `--video`
 - ProRes 4444 alpha output for NLE compositing
 - Customizable cursor color and width
-- Platform presets: `youtube`, `youtube-4k`, `youtube-shorts`, `instagram`, `instagram-feed`
+- Platform presets: `youtube`, `youtube-4k`, `youtube-shorts`, `instagram`, `instagram-story`, `instagram-feed`, `instagram-carousel`
 - Vertical (9:16) video support with safe zone margins
 
 ## End Goal
@@ -83,23 +83,40 @@ node src/index.mjs song.gp 0 --platform youtube-4k
 # YouTube Shorts vertical (1080x1920, 30fps, 8Mbps)
 node src/index.mjs song.gp 0 --platform youtube-shorts
 
-# Instagram Reels vertical (1080x1920, 30fps, 8Mbps, AAC 256kbps)
+# Instagram Reels vertical (1080x1920, 30fps, 6Mbps)
 node src/index.mjs song.gp 0 --platform instagram
 
-# Instagram Feed 4:5 portrait (1080x1350)
+# Instagram Story (1080x1920, 60s segments, lower bitrate)
+node src/index.mjs song.gp 0 --platform instagram-story
+
+# Instagram Feed 4:5 portrait (1080x1350, max 90s)
 node src/index.mjs song.gp 0 --platform instagram-feed
+
+# Instagram Carousel (1080x1350, 60s/slide)
+node src/index.mjs song.gp 0 --platform instagram-carousel
 
 # Vertical + playthrough composite (tab above IG safe zone)
 node src/index.mjs song.gp 0 --platform instagram --video playthrough.mp4
 ```
 
-| Preset | Resolution | FPS | Aspect | Video Bitrate | Audio |
-|--------|-----------|-----|--------|--------------|-------|
-| `youtube` | 1920x1080 | 30 | 16:9 | 12 Mbps | AAC 384k |
-| `youtube-4k` | 3840x2160 | 30 | 16:9 | 45 Mbps | AAC 384k |
-| `youtube-shorts` | 1080x1920 | 30 | 9:16 | 8 Mbps | AAC 256k |
-| `instagram` | 1080x1920 | 30 | 9:16 | 8 Mbps | AAC 256k |
-| `instagram-feed` | 1080x1350 | 30 | 4:5 | 8 Mbps | AAC 256k |
+**YouTube:**
+
+| Preset | Resolution | Aspect | Bitrate | Audio | Max Duration |
+|--------|-----------|--------|---------|-------|-------------|
+| `youtube` | 1920x1080 | 16:9 | 12 Mbps | AAC 384k | Unlimited |
+| `youtube-4k` | 3840x2160 | 16:9 | 45 Mbps | AAC 384k | Unlimited |
+| `youtube-shorts` | 1080x1920 | 9:16 | 8 Mbps | AAC 256k | 3 min |
+
+**Instagram:**
+
+| Preset | Resolution | Aspect | Bitrate | Max Duration | Safe Zone | Notes |
+|--------|-----------|--------|---------|-------------|-----------|-------|
+| `instagram` | 1080x1920 | 9:16 | 6 Mbps | 15 min | 320px bottom, 108px top | Permanent, appears in Reels tab + Explore |
+| `instagram-story` | 1080x1920 | 9:16 | 4 Mbps | 60s/segment | 250px top AND bottom | 24hr lifespan, auto-splits longer videos |
+| `instagram-feed` | 1080x1350 | 4:5 | 5 Mbps | 90s | 50px edges | Permanent, max feed real estate |
+| `instagram-carousel` | 1080x1350 | 4:5 | 5 Mbps | 60s/slide | 50px edges | Up to 20 slides, all same aspect ratio |
+
+All Instagram presets: 30fps, H.264, AAC 256kbps, 48kHz. File size: 4GB (Reels), 100MB (Stories/Feed).
 
 ### All Options
 
@@ -120,7 +137,7 @@ Options:
   --scale N         Notation scale factor (default: 1.0)
   --cursor-color C  Cursor color: red, white, cyan, green, yellow, orange
   --cursor-width N  Cursor width in px (default: 3)
-  --platform NAME   Platform preset (youtube, youtube-4k, youtube-shorts, instagram, instagram-feed)
+  --platform NAME   Platform preset (youtube, youtube-4k, youtube-shorts, instagram, instagram-story, instagram-feed, instagram-carousel)
   --vertical        9:16 vertical output (auto-set by platform presets)
 ```
 
@@ -216,9 +233,10 @@ ffmpeg stdin pipe ---- raw RGBA -> ProRes 4444 / H.264 (platform-optimized bitra
 
 - [YouTube recommended upload encoding settings](https://support.google.com/youtube/answer/1722171?hl=en)
 - [YouTube Shorts dimensions guide (2026)](https://vidiq.com/blog/post/youtube-shorts-vertical-video/)
-- [Instagram Reels export settings (2026)](https://www.stayabundant.com/blog/best-instagram-reels-export-settings)
-- [Instagram Reels safe zones (2026)](https://zeely.ai/blog/master-instagram-safe-zones/)
+- [Instagram video size & format specs (2026)](https://socialrails.com/blog/instagram-video-size-format-specifications-guide)
+- [Instagram safe zones (2026)](https://zeely.ai/blog/master-instagram-safe-zones/)
 - [Instagram Reels dimensions (2026)](https://help.instagram.com/1038071743007909)
+- [Instagram carousel sizes (2026)](https://www.overvisual.com/tools/instagram-carousel-size)
 
 ## Dependencies
 
