@@ -15,9 +15,11 @@ const Color = alphaTab.model.Color;
  * @param {number} trackIndex - which track to render
  * @param {object} opts - rendering options
  * @param {boolean} opts.transparent - true for translucent overlay mode (alpha bg + white notation)
+ * @param {number} opts.scale - notation scale factor (default 1.0, try 1.3-1.5 for larger tab numbers)
  */
 export async function renderStrip(score, settings, trackIndex = 0, opts = {}) {
   const transparent = opts.transparent ?? false;
+  const scale = opts.scale ?? 1.0;
 
   // Initialize alphaSkia with Bravura music font (OTF)
   const bravuraPath = path.join(
@@ -30,6 +32,7 @@ export async function renderStrip(score, settings, trackIndex = 0, opts = {}) {
   // Configure for horizontal strip rendering
   settings.core.engine = 'skia';
   settings.display.layoutMode = alphaTab.LayoutMode.Horizontal;
+  settings.display.scale = scale;
 
   // Tab-only rendering
   for (const track of score.tracks) {
@@ -73,8 +76,8 @@ export async function renderStrip(score, settings, trackIndex = 0, opts = {}) {
   });
 
   renderer.renderFinished.on((r) => {
-    totalWidth = r.totalWidth;
-    totalHeight = r.totalHeight;
+    totalWidth = Math.ceil(r.totalWidth);
+    totalHeight = Math.ceil(r.totalHeight);
 
     canvas.beginRender(totalWidth, totalHeight);
     if (transparent) {

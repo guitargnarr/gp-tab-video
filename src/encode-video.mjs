@@ -3,10 +3,16 @@ import { spawn } from 'child_process';
 const FFMPEG = '/opt/homebrew/bin/ffmpeg';
 
 export function createEncoder(outputPath, width, height, fps, transparent = true) {
+  // H.264 yuv420p requires even dimensions
+  const w = width % 2 === 0 ? width : width + 1;
+  const h = height % 2 === 0 ? height : height + 1;
+
+  // Use pad filter to handle odd->even dimension adjustment
+  const needsPad = w !== width || h !== height;
+
   let args;
 
   if (transparent && outputPath.endsWith('.mov')) {
-    // ProRes 4444 with alpha -- best for Final Cut / DaVinci compositing
     args = [
       '-y',
       '-f', 'rawvideo',
@@ -14,6 +20,7 @@ export function createEncoder(outputPath, width, height, fps, transparent = true
       '-video_size', `${width}x${height}`,
       '-framerate', `${fps}`,
       '-i', 'pipe:0',
+      ...(needsPad ? ['-vf', `pad=${w}:${h}:0:0:black@0`] : []),
       '-c:v', 'prores_ks',
       '-profile:v', '4444',
       '-pix_fmt', 'yuva444p10le',
@@ -21,7 +28,6 @@ export function createEncoder(outputPath, width, height, fps, transparent = true
       outputPath,
     ];
   } else if (transparent && outputPath.endsWith('.webm')) {
-    // VP9 with alpha -- smaller file, web-compatible
     args = [
       '-y',
       '-f', 'rawvideo',
@@ -35,7 +41,6 @@ export function createEncoder(outputPath, width, height, fps, transparent = true
       outputPath,
     ];
   } else {
-    // H.264 standalone (no alpha, dark background)
     args = [
       '-y',
       '-f', 'rawvideo',
@@ -43,6 +48,7 @@ export function createEncoder(outputPath, width, height, fps, transparent = true
       '-video_size', `${width}x${height}`,
       '-framerate', `${fps}`,
       '-i', 'pipe:0',
+      '-vf', `pad=${w}:${h}:0:0:black`,
       '-c:v', 'libx264',
       '-pix_fmt', 'yuv420p',
       '-crf', '18',
@@ -55,13 +61,24 @@ export function createEncoder(outputPath, width, height, fps, transparent = true
   });
 
   let stderrData = '';
+  let processExited = false;
+
   ffmpeg.stderr.on('data', (chunk) => {
     stderrData += chunk.toString();
   });
 
+  ffmpeg.on('exit', () => {
+    processExited = true;
+  });
+
   return {
     write(frameBuffer) {
+      if (processExited) return Promise.resolve();
       return new Promise((resolve, reject) => {
+        if (!ffmpeg.stdin.writable) {
+          resolve();
+          return;
+        }
         const canContinue = ffmpeg.stdin.write(frameBuffer, (err) => {
           if (err) reject(err);
         });
