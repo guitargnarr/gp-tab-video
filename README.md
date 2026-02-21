@@ -1,103 +1,70 @@
 # gp-tab-video
 
-Generate scrolling guitar tab overlay videos from Guitar Pro files. The kind you see in metal playthrough videos on YouTube -- automated, no manual video editing required.
+Generate scrolling guitar tab overlay videos from Guitar Pro files. The kind you see in ERRA/Jackson Guitars playthrough videos -- automated, no manual video editing required.
 
-## What It Does
+## How It Started
 
-Takes any Guitar Pro file (.gp, .gp5, .gp4, .gp3, .gpx) and outputs a video of scrolling tablature with a playhead cursor, synced to the song's tempo and timing.
+Manual workflow: export tabs as images from Guitar Pro, import into Premiere Pro, manually position and keyframe scroll animation frame by frame, render, re-do when timing is off. Hours of tedious work per video.
 
-**Output modes:**
-- **Standalone** (.mp4) -- white tabs on dark background
-- **Transparent overlay** (.mov with alpha) -- ProRes 4444, drop into your NLE as a layer on top of playthrough footage
-- **Direct composite** -- overlay tab onto playthrough footage in one command
+## How It's Going
 
-**Platform presets** with optimized encoding for YouTube, YouTube Shorts, and Instagram Reels -- including vertical (9:16) output with safe zone awareness.
-
-## Current State
-
-Fully functional CLI tool. Renders a 3-min song in ~9 seconds at 30fps.
-
-**Features:**
-- Reads GP3 through GP7 formats via alphaTab
-- Tab-only horizontal rendering (no standard notation clutter)
-- Beat-accurate timing with tempo change support
-- Smooth scroll interpolation between beats
-- Cursor with glow at 1/3 viewport (2/3 look-ahead)
-- White notation / light gray string lines on dark or transparent background
-- Configurable FPS (24/30/60), resolution (1080p/4K), notation scale
-- Multi-track stacked rendering (e.g., lead + rhythm guitar)
-- One-command composite over playthrough footage via `--video`
-- ProRes 4444 alpha output for NLE compositing
-- Customizable cursor color and width
-- Platform presets: YouTube, Instagram, Facebook, TikTok
-- Vertical (9:16) video support with safe zone margins
-
-## End Goal
-
-The complete playthrough video pipeline: record in Logic (tempo/BPM), film on iPhone, run one command, get a YouTube-ready video with synced scrolling tab overlay. Remaining work:
-
-- Technique annotations rendered on tab (P.M., H, P, slides, bends, whammy)
-- Section markers / bar numbers overlay
-- Per-track color coding in multi-track mode
-- Browser-based live preview before committing to render
-- Preset styles (dark mode, light mode, stream overlay, etc.)
-
-## Usage
+One command. GP file in, scrolling tab video out. A 3-minute song renders in ~9 seconds.
 
 ```bash
-npm install
-
-# Basic: standalone MP4 (white tabs, dark bg)
-node src/index.mjs song.gp
-
-# Specific track (0-indexed)
-node src/index.mjs song.gp 1
-
-# Transparent overlay for NLE compositing
-node src/index.mjs song.gp 0 --transparent
-
-# 4K 60fps with larger notation
-node src/index.mjs song.gp 0 --width 3840 --fps 60 --scale 1.3
-
-# Multi-track (lead + rhythm stacked)
-node src/index.mjs song.gp 0,1
-
-# Composite directly over playthrough footage
-node src/index.mjs song.gp 0 --video playthrough.mp4
-
-# Custom cursor
-node src/index.mjs song.gp 0 --cursor-color cyan --cursor-width 4
+node src/index.mjs song.gp 0 --style playthrough --platform youtube --video playthrough.mp4
 ```
+
+**What this does:**
+1. Parses the GP file (any format: GP3, GP4, GP5, GP6, GP7, GPX)
+2. Renders a horizontal tab strip with beat-accurate pixel positions
+3. Generates scrolling frames with a glowing cursor synced to tempo
+4. Composites the tab overlay onto your iPhone playthrough footage
+5. Outputs a platform-optimized MP4 ready for upload
+
+## Current Features
+
+### Rendering
+- Tab-only horizontal rendering (standard notation hidden)
+- 5 ERRA-inspired track color palettes: white (lead), pink (rhythm), cyan (harmony), gold (bass), green
+- Multi-track stacked rendering with per-track colors and 4px gap
+- Beat-accurate cursor with configurable color and glow
+- Cursor positioned at 1/3 viewport width (2/3 look-ahead)
+- Watermark removal (alphaTab attribution stripped from pixel data)
+- Configurable notation scale (1.0x default, 1.3-1.5x for larger tab numbers)
+
+### Style Presets
+Control what notation elements appear with `--style`:
+
+| Style | What Shows | What's Hidden | Strip Height* |
+|-------|-----------|---------------|---------------|
+| `default` | Everything | Nothing | 550px |
+| `clean` | All techniques + bar numbers | Title, tuning, track names, tempo, triplet feel | 527px |
+| `playthrough` | P.M., H/P, bends, harmonics, vibrato, dynamics, bar numbers | Metadata, fingering, capo, lyrics, pedals | 527px |
+| `minimal` | Tab numbers and staff lines only | All annotations | 469px |
+
+*Heights from test file at 1.0x scale. Varies by song complexity.
+
+### Notation Toggles
+Fine-grained control with `--hide` and `--show`:
+
+| Category | Elements |
+|----------|----------|
+| Metadata | title, subtitle, artist, album, words, music, copyright |
+| Track | tuning, trackNames, chordDiagrams, barNumbers |
+| Techniques | palmMute, letRing, tap, harmonics, vibrato, wideVibrato, bend, whammyBar, pickStroke, pickSlide, trill, fingering, barre, rasgueado, golpe, leftHandTap |
+| Expression | dynamics, crescendo, fadeIn |
+| Structure | tempo, marker, text, lyrics, chordNames, fermata, freeTime, tripletFeel, alternateEndings, repeatCount, directions |
+| Pedals | wahPedal, sustainPedal |
+
+`--hide` is additive (hide specific elements on top of a style). `--show` is exclusive (hide everything except listed elements).
+
+### Output Modes
+- **Standalone** (.mp4) -- colored tabs on dark background, ready to watch
+- **Transparent overlay** (.mov ProRes 4444 with alpha) -- drop into Premiere/Resolve as a layer
+- **Direct composite** -- overlay tab onto playthrough footage in one command via `--video`
 
 ### Platform Presets
-
-One flag sets resolution, FPS, bitrate, and encoding to match each platform's optimal upload specs.
-
-```bash
-# YouTube standard (1920x1080, 30fps, H.264, 12Mbps, AAC 384kbps)
-node src/index.mjs song.gp 0 --platform youtube
-
-# YouTube 4K (3840x2160, 30fps, H.264, 45Mbps)
-node src/index.mjs song.gp 0 --platform youtube-4k
-
-# YouTube Shorts vertical (1080x1920, 30fps, 8Mbps)
-node src/index.mjs song.gp 0 --platform youtube-shorts
-
-# Instagram Reels vertical (1080x1920, 30fps, 6Mbps)
-node src/index.mjs song.gp 0 --platform instagram
-
-# Instagram Story (1080x1920, 60s segments, lower bitrate)
-node src/index.mjs song.gp 0 --platform instagram-story
-
-# Instagram Feed 4:5 portrait (1080x1350, max 90s)
-node src/index.mjs song.gp 0 --platform instagram-feed
-
-# Instagram Carousel (1080x1350, 60s/slide)
-node src/index.mjs song.gp 0 --platform instagram-carousel
-
-# Vertical + playthrough composite (tab above IG safe zone)
-node src/index.mjs song.gp 0 --platform instagram --video playthrough.mp4
-```
+One flag sets resolution, FPS, bitrate, audio codec, and safe zone margins:
 
 **YouTube:**
 
@@ -109,39 +76,85 @@ node src/index.mjs song.gp 0 --platform instagram --video playthrough.mp4
 
 **Instagram:**
 
-| Preset | Resolution | Aspect | Bitrate | Max Duration | Safe Zone | Notes |
-|--------|-----------|--------|---------|-------------|-----------|-------|
-| `instagram` | 1080x1920 | 9:16 | 6 Mbps | 15 min | 320px bottom, 108px top | Permanent, appears in Reels tab + Explore |
-| `instagram-story` | 1080x1920 | 9:16 | 4 Mbps | 60s/segment | 250px top AND bottom | 24hr lifespan, auto-splits longer videos |
-| `instagram-feed` | 1080x1350 | 4:5 | 5 Mbps | 90s | 50px edges | Permanent, max feed real estate |
-| `instagram-carousel` | 1080x1350 | 4:5 | 5 Mbps | 60s/slide | 50px edges | Up to 20 slides, all same aspect ratio |
-
-All Instagram presets: 30fps, H.264, AAC 256kbps, 48kHz. File size: 4GB (Reels), 100MB (Stories/Feed).
+| Preset | Resolution | Aspect | Bitrate | Max Duration | Safe Zone |
+|--------|-----------|--------|---------|-------------|-----------|
+| `instagram` | 1080x1920 | 9:16 | 6 Mbps | 15 min | 320px bottom, 108px top |
+| `instagram-story` | 1080x1920 | 9:16 | 4 Mbps | 60s/segment | 250px top and bottom |
+| `instagram-feed` | 1080x1350 | 4:5 | 5 Mbps | 90s | 50px edges |
+| `instagram-carousel` | 1080x1350 | 4:5 | 5 Mbps | 60s/slide | 50px edges |
 
 **Facebook:**
 
-As of June 2025, all Facebook videos are Reels -- there's no separate "feed video" format anymore.
+| Preset | Resolution | Aspect | Bitrate | Max Duration | Safe Zone |
+|--------|-----------|--------|---------|-------------|-----------|
+| `facebook` | 1080x1920 | 9:16 | 8 Mbps | No cap | 672px bottom, 269px top |
+| `facebook-story` | 1080x1920 | 9:16 | 6 Mbps | 20s/card | 250px top and bottom |
 
-| Preset | Resolution | Aspect | Bitrate | Max Duration | Safe Zone | Notes |
-|--------|-----------|--------|---------|-------------|-----------|-------|
-| `facebook` | 1080x1920 | 9:16 | 8 Mbps | No cap | 672px bottom (!), 269px top | All videos are Reels now. Bottom safe zone is massive (35%). |
-| `facebook-story` | 1080x1920 | 9:16 | 6 Mbps | 20s/card, 2min total | 250px top and bottom | 24hr lifespan, splits at 15s |
-
-All Facebook presets: 30fps, H.264, AAC 192kbps, 48kHz. File size: 4GB max.
-
-**Facebook vs Instagram safe zone warning:** Facebook's bottom safe zone is 672px (35% of 1920) vs Instagram's 320px (17%). Tab overlay placement is significantly higher on Facebook. The `--platform facebook` preset handles this automatically when compositing with `--video`.
+Facebook's bottom safe zone is 672px (35%) vs Instagram's 320px (17%). Tab placement is handled automatically per preset.
 
 **TikTok:**
 
-TikTok recompresses all uploads -- upload at high quality and let their encoder do its thing.
+| Preset | Resolution | Aspect | Bitrate | Max Duration | Safe Zone |
+|--------|-----------|--------|---------|-------------|-----------|
+| `tiktok` | 1080x1920 | 9:16 | 8 Mbps | 10 min | 320px bottom, 108px top, 120px right |
 
-| Preset | Resolution | Aspect | Bitrate | Max Duration | Safe Zone | Notes |
-|--------|-----------|--------|---------|-------------|-----------|-------|
-| `tiktok` | 1080x1920 | 9:16 | 8 Mbps | 10 min (60 min upload) | 320px bottom, 108px top | Also 120px right (engagement buttons), 60px left. File: 287MB iOS, 72MB Android. |
+### Video Encoding
+- H.264 for .mp4 (standalone or composite)
+- ProRes 4444 for .mov (transparent alpha channel)
+- Platform-aware bitrate targeting (ABR mode when preset active, CRF 18 otherwise)
+- AAC audio with platform-specific bitrate and sample rate
 
-30fps, H.264, AAC 256kbps, 48kHz. TikTok safe zone is 900x1492px centered in the 1080x1920 frame.
+### Performance
 
-**TikTok vs Instagram:** Nearly identical safe zones (320px bottom, 108px top). Main differences: TikTok has a 120px right margin for engagement buttons (not an issue for bottom-positioned tab overlays), lower file size limits (287MB iOS vs 4GB), and heavier recompression on upload.
+| Scenario | Time |
+|----------|------|
+| 3 min song, 30fps, 1080p, single track | ~9s |
+| 3 min song, 30fps, 1080p, multi-track (2 tracks) | ~25s |
+| 3 min song, 60fps, 1080p | ~15s |
+
+Frame generation runs at ~600 frames/sec. The bottleneck is ffmpeg encoding, not frame generation.
+
+## Usage
+
+```bash
+npm install
+
+# Basic standalone
+node src/index.mjs song.gp
+
+# Specific track
+node src/index.mjs song.gp 1
+
+# Multi-track (lead + rhythm stacked, auto-colored)
+node src/index.mjs song.gp 0,1
+
+# Transparent overlay for NLE
+node src/index.mjs song.gp 0 --transparent
+
+# Composite over playthrough footage
+node src/index.mjs song.gp 0 --video playthrough.mp4
+
+# Platform-optimized
+node src/index.mjs song.gp 0 --platform youtube
+node src/index.mjs song.gp 0 --platform instagram --video playthrough.mp4
+
+# Style presets
+node src/index.mjs song.gp 0 --style playthrough
+node src/index.mjs song.gp 0 --style minimal
+
+# Notation toggles
+node src/index.mjs song.gp 0 --hide tuning,trackNames,barNumbers
+node src/index.mjs song.gp 0 --show palmMute,harmonics
+
+# 4K with larger notation
+node src/index.mjs song.gp 0 --width 3840 --fps 60 --scale 1.3
+
+# Custom cursor
+node src/index.mjs song.gp 0 --cursor-color cyan --cursor-width 4
+
+# Kitchen sink: playthrough style, YouTube preset, composite over footage
+node src/index.mjs song.gp 0 --style playthrough --platform youtube --video playthrough.mp4
+```
 
 ### All Options
 
@@ -153,20 +166,27 @@ Arguments:
   tracks            Track numbers, comma-separated (default: 0)
   output            Output path (.mov = ProRes alpha, .mp4 = H.264)
 
-Options:
+Rendering:
   --transparent     Alpha background for overlay compositing
   --fps N           Frame rate: 24, 30, 60 (default: 30)
   --width N         Viewport width in px (default: 1920, use 3840 for 4K)
-  --video FILE      Playthrough footage -- composites tab overlay at bottom
-  --tracks 0,1      Track indices to render (multi-track stacked)
-  --scale N         Notation scale factor (default: 1.0)
-  --cursor-color C  Cursor color: red, white, cyan, green, yellow, orange
+  --scale N         Notation scale factor (default: 1.0, try 1.3-1.5)
+  --cursor-color C  red, white, cyan, green, yellow, orange (default: red)
   --cursor-width N  Cursor width in px (default: 3)
-  --platform NAME   Platform preset (see table above)
-  --vertical        9:16 vertical output (auto-set by platform presets)
+  --tracks 0,1      Track indices to render (multi-track stacked)
+
+Style:
+  --style NAME      Style preset: default, clean, playthrough, minimal
+  --hide LIST       Hide notation elements (comma-separated)
+  --show LIST       Show ONLY these elements (hides everything else)
+
+Platform:
+  --platform NAME   Platform preset (sets resolution, bitrate, safe zones)
+  --vertical        Force 9:16 vertical output
+  --video FILE      Playthrough footage to composite tab overlay onto
 ```
 
-CLI flags override preset values, so `--platform instagram --fps 60` uses all IG defaults but at 60fps.
+CLI flags override preset values: `--platform instagram --fps 60` uses IG defaults but at 60fps.
 
 ## Intended Workflow
 
@@ -176,101 +196,123 @@ CLI flags override preset values, so `--platform instagram --fps 60` uses all IG
 2. Record guitar in Logic Pro (session tempo = GP file BPM)
 3. Film playthrough horizontally on iPhone 16 Pro Max (4K 30fps, HDR OFF)
 4. AirDrop or USB-C transfer to Mac
-5. Run: `node src/index.mjs song.gp 0 --platform youtube --video playthrough.mp4`
+5. `node src/index.mjs song.gp 0 --style playthrough --platform youtube --video playthrough.mp4`
 6. Upload to YouTube
 
 ### Instagram Reels / YouTube Shorts (Vertical)
 
-1. Write/arrange in Guitar Pro 7
-2. Record guitar in Logic Pro
-3. Film playthrough vertically on iPhone 16 Pro Max (4K 30fps, HDR OFF)
-4. Transfer to Mac
-5. Run: `node src/index.mjs song.gp 0 --platform instagram --video playthrough.mp4`
-6. Upload to Instagram Reels (max 3 min, 1080x1920)
-
-For YouTube Shorts, swap `--platform instagram` for `--platform youtube-shorts`.
+1. Film playthrough vertically
+2. `node src/index.mjs song.gp 0 --style playthrough --platform instagram --video playthrough.mp4`
+3. Upload -- tab overlay is positioned above the platform safe zone automatically
 
 ### NLE Compositing (Premiere Pro / DaVinci Resolve)
 
-For maximum control, generate the tab overlay separately and composite in your editor:
+For maximum control, render the tab overlay separately:
 
-1. `node src/index.mjs song.gp 0 --platform youtube --transparent` (outputs ProRes 4444 .mov with alpha)
-2. Open Premiere Pro 2026
-3. V1: iPhone footage, V2: Logic audio (WAV 48kHz 24-bit), V3: Tab overlay .mov
-4. Scale/position tab overlay at bottom of frame
-5. Export: Match Source - High Bitrate, or use YouTube/IG presets
+1. `node src/index.mjs song.gp 0 --style playthrough --transparent` (ProRes 4444 .mov)
+2. Import into Premiere/Resolve as V3 layer over footage
+3. Scale/position to taste, apply color grading, export
+
+### After Effects Automation (aerender)
+
+The transparent .mov overlay can be composited headlessly using After Effects:
+
+```bash
+# Render tab overlay
+node src/index.mjs song.gp 0 --transparent --style playthrough
+
+# Composite via AE template + aerender (no GUI)
+"/Applications/Adobe After Effects 2026/aerender" \
+  -project template.aep -comp "Main" -output final.mp4
+```
 
 ### iPhone 16 Pro Max Camera Settings
 
-- **Formats:** HEVC (recommended) or Apple ProRes (max quality, needs external SSD)
 - **Resolution:** 4K
-- **Frame Rate:** 30fps (cinematic) or 60fps (fast playing). Match `--fps` flag.
+- **Frame Rate:** 30fps (cinematic) or 60fps (fast playing)
 - **HDR Video:** OFF (Rec.709 SDR avoids color mismatch with tab overlay)
-- **Stabilization:** Standard (not Action Mode, which crops)
-- **Grid:** ON (helps framing)
+- **Format:** HEVC (recommended) or Apple ProRes (max quality, needs SSD)
+- **Stabilization:** Standard (not Action Mode)
+- **Grid:** ON
 
-### Transfer to Mac
+## Roadmap
 
-- **AirDrop** -- fastest for single clips
-- **USB-C cable + Image Capture** -- best for multiple clips or ProRes (preserves original quality)
-- **iCloud Photos** -- automatic but slower; export unmodified original from Photos
+Completed features are checked. Remaining work toward the full automated playthrough pipeline:
 
-## Requirements
-
-- Node.js 22+ (tested on 25.2.1)
-- ffmpeg (tested on 8.0)
-- macOS (alphaSkia native binary is platform-specific)
+- [x] GP3-GP7 file parsing via alphaTab
+- [x] Horizontal tab strip rendering with beat-accurate pixel positions
+- [x] Tempo change support in timing engine
+- [x] Smooth scroll interpolation between beats
+- [x] Cursor with glow effect
+- [x] Standalone .mp4 and transparent .mov (ProRes 4444) output
+- [x] Multi-track stacked rendering
+- [x] Per-track ERRA-style color palettes (white, pink, cyan, gold, green)
+- [x] Direct composite over playthrough footage (`--video`)
+- [x] Platform presets (YouTube, Shorts, Instagram, Facebook, TikTok)
+- [x] Vertical 9:16 output with platform-aware safe zones
+- [x] Watermark removal
+- [x] Style presets (default, clean, playthrough, minimal)
+- [x] 56 notation element toggles (`--hide`, `--show`)
+- [x] Configurable FPS, resolution, scale, cursor color/width
+- [x] 18x performance optimization (~600 frames/sec)
+- [ ] Section marker text overlay during playback (Intro, Verse, Chorus)
+- [ ] Tuning info display (detect and label Drop D, E Standard, etc.)
+- [ ] Browser-based live preview before committing to full render
+- [ ] AE template automation (ExtendScript + aerender pipeline)
+- [ ] Audio sync from Logic Pro export (WAV alignment with GP file BPM)
+- [ ] Batch rendering (multiple songs, multiple platforms in one run)
 
 ## Architecture
 
 ```
-GP file
+GP file (.gp/.gp5/.gpx)
   |
   v
-alphaTab ScoreLoader ---- parse any GP3-GP7 format
+load-score.mjs ---- alphaTab ScoreLoader, auto-detects format
   |
   v
-ScoreRenderer + alphaSkia ---- render horizontal PNG strip + BoundsLookup
-  |
+render-strip.mjs ---- ScoreRenderer + alphaSkia -> horizontal PNG strip
+  |                    + style presets, notation toggles, color palettes
+  |                    + BoundsLookup (beat pixel positions)
   v
-Timing engine ---- MIDI ticks -> ms, tempo changes, beat-to-pixel map
-  |
+build-timing.mjs ---- MIDI ticks -> ms (handles tempo changes)
+  |                    formula: ms = ticks * (60000 / (bpm * 960))
   v
-Frame generator ---- raw pixel crop + cursor blend, ~600 frames/sec
-  |
+generate-frames.mjs ---- raw pixel crop from strip + cursor alpha blend
+  |                       + watermark removal (horizontal + vertical)
+  |                       ~600 frames/sec throughput
   v
-ffmpeg stdin pipe ---- raw RGBA -> ProRes 4444 / H.264 (platform-optimized bitrate)
-  |
+encode-video.mjs ---- ffmpeg stdin pipe (raw RGBA -> ProRes 4444 / H.264)
+  |                    platform-aware bitrate, audio codec, sample rate
   v
-.mov or .mp4 (or direct composite with --video, vertical-aware for 9:16)
+index.mjs ---- CLI orchestrator, arg parser, composite pipeline
+  |             multi-track stacking via sharp
+  v
+.mov or .mp4 (or direct composite via ffmpeg filter_complex)
 ```
 
-## Performance
+## Requirements
 
-| Scenario | Time |
-|----------|------|
-| 3 min song, 30fps, 1080p, single track | ~9s |
-| 3 min song, 30fps, instagram preset (1080w) | ~16s |
-| 3 min song, 60fps, 1080p, 1.3x scale | ~15s |
-| 3 min song, 30fps, multi-track (2 tracks) | ~25s |
-
-## Platform Spec Sources
-
-- [YouTube recommended upload encoding settings](https://support.google.com/youtube/answer/1722171?hl=en)
-- [YouTube Shorts dimensions guide (2026)](https://vidiq.com/blog/post/youtube-shorts-vertical-video/)
-- [Instagram video size & format specs (2026)](https://socialrails.com/blog/instagram-video-size-format-specifications-guide)
-- [Instagram safe zones (2026)](https://zeely.ai/blog/master-instagram-safe-zones/)
-- [Instagram Reels dimensions (2026)](https://help.instagram.com/1038071743007909)
-- [Instagram carousel sizes (2026)](https://www.overvisual.com/tools/instagram-carousel-size)
-- [Facebook video size & specs (2026)](https://www.aiarty.com/knowledge-base/facebook-video-size.htm)
-- [Facebook Reels dimensions (2026)](https://www.aiarty.com/knowledge-base/facebook-reel-size.htm)
-- [Facebook Reels safe zones (2026)](https://sendshort.ai/guides/facebook-reels-size/)
-- [TikTok video size & dimensions (2026)](https://fliki.ai/blog/tiktok-video-size)
-- [TikTok safe zones (2026)](https://kreatli.com/guides/tiktok-safe-zone)
+- Node.js 22+ (tested on 25.2.1)
+- ffmpeg 7+ (tested on 8.0)
+- macOS (alphaSkia native binary is platform-specific)
 
 ## Dependencies
 
-- `@coderline/alphatab` -- GP file parsing + notation rendering
+- `@coderline/alphatab` -- GP file parsing + notation rendering engine
 - `@coderline/alphaskia` + `alphaskia-macos` -- Skia-based PNG rendering
-- `sharp` -- strip decode (one-time) + multi-track compositing
+- `sharp` -- strip decode + multi-track compositing
 - ffmpeg -- video encoding (system install)
+
+## Platform Spec Sources
+
+- [YouTube upload encoding settings](https://support.google.com/youtube/answer/1722171)
+- [YouTube Shorts dimensions](https://vidiq.com/blog/post/youtube-shorts-vertical-video/)
+- [Instagram video specs (2026)](https://socialrails.com/blog/instagram-video-size-format-specifications-guide)
+- [Instagram safe zones (2026)](https://zeely.ai/blog/master-instagram-safe-zones/)
+- [Instagram carousel sizes](https://www.overvisual.com/tools/instagram-carousel-size)
+- [Facebook video specs (2026)](https://www.aiarty.com/knowledge-base/facebook-video-size.htm)
+- [Facebook Reels specs (2026)](https://www.aiarty.com/knowledge-base/facebook-reel-size.htm)
+- [Facebook Reels safe zones](https://sendshort.ai/guides/facebook-reels-size/)
+- [TikTok video specs (2026)](https://fliki.ai/blog/tiktok-video-size)
+- [TikTok safe zones (2026)](https://kreatli.com/guides/tiktok-safe-zone)
