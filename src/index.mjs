@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { loadScore } from './load-score.mjs';
-import { renderStrip } from './render-strip.mjs';
+import { renderStrip, NOTATION_ALIASES, STYLE_PRESETS } from './render-strip.mjs';
 import { buildTimingMap } from './build-timing.mjs';
 import { generateFrames } from './generate-frames.mjs';
 import { createEncoder } from './encode-video.mjs';
@@ -200,6 +200,9 @@ function parseArgs(argv) {
     audioSampleRate: null,
     safeMarginBottom: 0,
     safeMarginTop: 0,
+    style: null,       // style preset name
+    hide: [],          // notation elements to hide
+    show: [],          // notation elements to show (hide everything else)
   };
 
   const positional = [];
@@ -225,6 +228,12 @@ function parseArgs(argv) {
       opts.platform = argv[++i];
     } else if (a === '--vertical') {
       opts.vertical = true;
+    } else if (a === '--style' && argv[i + 1]) {
+      opts.style = argv[++i];
+    } else if (a === '--hide' && argv[i + 1]) {
+      opts.hide = argv[++i].split(',').map((s) => s.trim());
+    } else if (a === '--show' && argv[i + 1]) {
+      opts.show = argv[++i].split(',').map((s) => s.trim());
     } else if (!a.startsWith('--')) {
       positional.push(a);
     }
@@ -258,7 +267,60 @@ function parseArgs(argv) {
     opts.safeMarginTop = preset.safeMarginTop || 0;
   }
 
+  // Resolve style preset + notation toggles into notationHide array
+  opts.notationHide = resolveNotationHide(opts.style, opts.hide, opts.show);
+
   return opts;
+}
+
+function resolveNotationHide(styleName, hideList, showList) {
+  const hideSet = new Set();
+
+  // 1. Apply style preset (if any)
+  if (styleName) {
+    const style = STYLE_PRESETS[styleName];
+    if (!style) {
+      console.error(`Unknown style: ${styleName}`);
+      console.error(`Available: ${Object.keys(STYLE_PRESETS).join(', ')}`);
+      process.exit(1);
+    }
+    for (const alias of style.hide) {
+      const element = NOTATION_ALIASES[alias];
+      if (element !== undefined) hideSet.add(element);
+    }
+  }
+
+  // 2. Apply --hide (additive with style)
+  for (const alias of hideList) {
+    const element = NOTATION_ALIASES[alias];
+    if (element === undefined) {
+      console.error(`Unknown notation element: ${alias}`);
+      console.error(`Available: ${Object.keys(NOTATION_ALIASES).join(', ')}`);
+      process.exit(1);
+    }
+    hideSet.add(element);
+  }
+
+  // 3. Apply --show (exclusive mode: hide everything EXCEPT these)
+  if (showList.length > 0) {
+    // Validate all show aliases first
+    for (const alias of showList) {
+      if (NOTATION_ALIASES[alias] === undefined) {
+        console.error(`Unknown notation element: ${alias}`);
+        console.error(`Available: ${Object.keys(NOTATION_ALIASES).join(', ')}`);
+        process.exit(1);
+      }
+    }
+    // Get all unique element values
+    const allElements = new Set(Object.values(NOTATION_ALIASES));
+    const showElements = new Set(showList.map((a) => NOTATION_ALIASES[a]));
+    // Hide everything not in the show list
+    for (const element of allElements) {
+      if (!showElements.has(element)) hideSet.add(element);
+    }
+  }
+
+  return [...hideSet];
 }
 
 const opts = parseArgs(process.argv.slice(2));
@@ -282,10 +344,33 @@ if (!opts.gpFile) {
   console.error('  --cursor-width N  Cursor width in px (default: 3)');
   console.error('  --platform NAME   Platform preset (overrides width/fps/scale/bitrate)');
   console.error('  --vertical        9:16 vertical output (auto-set by platform presets)');
+  console.error('  --style NAME      Style preset for notation display');
+  console.error('  --hide LIST       Hide notation elements (comma-separated)');
+  console.error('  --show LIST       Show ONLY these elements (hides everything else)');
   console.error('');
   console.error('Platform Presets:');
   for (const [name, p] of Object.entries(PLATFORM_PRESETS)) {
     console.error(`  ${name.padEnd(18)} ${p.description}`);
+  }
+  console.error('');
+  console.error('Style Presets:');
+  for (const [name, s] of Object.entries(STYLE_PRESETS)) {
+    console.error(`  ${name.padEnd(18)} ${s.description}`);
+  }
+  console.error('');
+  console.error('Notation Elements (for --hide/--show):');
+  const categories = {
+    'Metadata': ['title', 'subtitle', 'artist', 'album', 'words', 'music', 'copyright'],
+    'Track': ['tuning', 'trackNames', 'chordDiagrams', 'barNumbers'],
+    'Techniques': ['palmMute', 'letRing', 'tap', 'harmonics', 'vibrato', 'wideVibrato',
+                   'bend', 'whammyBar', 'pickStroke', 'pickSlide', 'trill', 'fingering',
+                   'barre', 'rasgueado', 'golpe', 'leftHandTap'],
+    'Expression': ['dynamics', 'crescendo', 'fadeIn'],
+    'Structure': ['tempo', 'marker', 'text', 'lyrics', 'chordNames', 'fermata',
+                  'freeTime', 'tripletFeel', 'alternateEndings', 'repeatCount', 'directions'],
+  };
+  for (const [cat, aliases] of Object.entries(categories)) {
+    console.error(`  ${cat}: ${aliases.join(', ')}`);
   }
   console.error('');
   console.error('Examples:');
@@ -302,6 +387,13 @@ if (!opts.gpFile) {
   console.error('');
   console.error('  # Vertical with playthrough footage:');
   console.error('  node src/index.mjs song.gp 0 --platform instagram --video playthrough.mp4');
+  console.error('');
+  console.error('  # Style presets and notation toggles:');
+  console.error('  node src/index.mjs song.gp 0 --style playthrough           # ERRA-style (P.M., bends, harmonics)');
+  console.error('  node src/index.mjs song.gp 0 --style clean                 # No metadata clutter');
+  console.error('  node src/index.mjs song.gp 0 --style minimal               # Tab numbers only');
+  console.error('  node src/index.mjs song.gp 0 --hide tuning,trackNames      # Hide specific elements');
+  console.error('  node src/index.mjs song.gp 0 --show palmMute,harmonics     # Show ONLY these');
   process.exit(1);
 }
 
@@ -330,6 +422,12 @@ async function main() {
     console.log(`Platform: ${opts.platform} -- ${preset.description}`);
     if (opts.vertical) console.log(`  Orientation: vertical (9:16)`);
     if (opts.videoBitrate) console.log(`  Target bitrate: ${opts.videoBitrate} video, ${opts.audioBitrate} audio`);
+  }
+  if (opts.style) {
+    console.log(`Style: ${opts.style} -- ${STYLE_PRESETS[opts.style].description}`);
+  }
+  if (opts.notationHide.length > 0) {
+    console.log(`  Hiding ${opts.notationHide.length} notation element(s)`);
   }
 
   console.log(`Loading ${path.basename(opts.gpFile)}...`);
@@ -367,6 +465,7 @@ async function main() {
         transparent: opts.transparent,
         scale: opts.scale,
         trackColorIndex: multiTrack ? ti : 0,
+        notationHide: opts.notationHide,
       }
     );
     console.log(`  Strip size: ${totalWidth}x${totalHeight}px`);
