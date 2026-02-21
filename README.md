@@ -98,6 +98,49 @@ Facebook's bottom safe zone is 672px (35%) vs Instagram's 320px (17%). Tab place
 |--------|-----------|--------|---------|-------------|-----------|
 | `tiktok` | 1080x1920 | 9:16 | 8 Mbps | 10 min | 320px bottom, 108px top, 120px right |
 
+### Section Markers
+Sections defined in the GP file (Intro, Verse, Chorus, etc.) are automatically detected and rendered as labeled overlays at the top of the tab strip. No configuration needed -- if the file has sections, they appear.
+
+### Tuning Detection
+Automatically identifies tunings from MIDI note values and displays them in the CLI output:
+```
+Track 0 tuning: E Standard (E4 B3 G3 D3 A2 E2)
+Track 1 tuning: Drop D (E4 B3 G3 D3 A2 D2)
+```
+Covers standard and alternate tunings for 4-8 string instruments, with fallback to uniform-offset detection ("E Standard down 2 semitones") for non-standard tunings.
+
+### Browser Preview
+Live preview with alphaTab's built-in MIDI player, cursor, and scrolling:
+```bash
+node src/preview.mjs song.gp                    # auto-opens browser
+node src/preview.mjs song.gp --tracks 0,2 3000  # pre-select tracks, custom port
+```
+- Color-coded track toggle chips (click to add/remove tracks)
+- Horizontal and page layout modes
+- Play/pause/stop with scroll-on-play
+- Drag-and-drop file loading
+
+### Batch Rendering
+Render multiple files and/or multiple platform outputs in one command:
+```bash
+node src/batch.mjs ~/compositions/*.gp --style playthrough
+node src/batch.mjs ~/compositions/ --platform youtube,instagram --tracks 0
+node src/batch.mjs song1.gp song2.gp5 --style clean --fps 60
+```
+Directories are scanned for GP files automatically. Platform comma-separation produces one output per file per platform.
+
+### Composite Reels
+Generate social media reels with cinematic background video behind the scrolling tab:
+```bash
+# Built-in neon guitar animation background
+node src/composite-reel.mjs song.gp --start-bar 69 --duration 15 --platform instagram
+
+# Stock footage composite (via ffmpeg)
+ffmpeg -i ocean_bg.mp4 -ss 125.5 -t 15 -i tab_overlay.mov \
+  -filter_complex "[0:v]...[bg];[bg][1:v]overlay=..." output.mp4
+```
+The composite-reel pipeline handles background rendering, tab overlay generation, alpha compositing, color grading, and platform-spec encoding in one pass. Supports `--bg neon-guitar` (built-in Canvas 2D animation) or external video via ffmpeg.
+
 ### Video Encoding
 - H.264 for .mp4 (standalone or composite)
 - ProRes 4444 for .mov (transparent alpha channel)
@@ -255,12 +298,13 @@ Completed features are checked. Remaining work toward the full automated playthr
 - [x] 56 notation element toggles (`--hide`, `--show`)
 - [x] Configurable FPS, resolution, scale, cursor color/width
 - [x] 18x performance optimization (~600 frames/sec)
-- [ ] Section marker text overlay during playback (Intro, Verse, Chorus)
-- [ ] Tuning info display (detect and label Drop D, E Standard, etc.)
-- [ ] Browser-based live preview before committing to full render
+- [x] Section marker text overlay during playback (Intro, Verse, Chorus)
+- [x] Tuning info display (detect and label Drop D, E Standard, etc.)
+- [x] Browser-based live preview with multi-track color-coded toggle
+- [x] Batch rendering (multiple songs, multiple platforms in one run)
+- [x] Composite reel pipeline (background video/animation + tab overlay)
 - [ ] AE template automation (ExtendScript + aerender pipeline)
 - [ ] Audio sync from Logic Pro export (WAV alignment with GP file BPM)
-- [ ] Batch rendering (multiple songs, multiple platforms in one run)
 
 ## Architecture
 
@@ -268,27 +312,35 @@ Completed features are checked. Remaining work toward the full automated playthr
 GP file (.gp/.gp5/.gpx)
   |
   v
-load-score.mjs ---- alphaTab ScoreLoader, auto-detects format
+load-score.mjs --------- alphaTab ScoreLoader, auto-detects format
   |
   v
-render-strip.mjs ---- ScoreRenderer + alphaSkia -> horizontal PNG strip
-  |                    + style presets, notation toggles, color palettes
-  |                    + BoundsLookup (beat pixel positions)
+render-strip.mjs -------- ScoreRenderer + alphaSkia -> horizontal PNG strip
+  |                        + style presets, notation toggles, color palettes
+  |                        + BoundsLookup (beat pixel positions)
   v
-build-timing.mjs ---- MIDI ticks -> ms (handles tempo changes)
-  |                    formula: ms = ticks * (60000 / (bpm * 960))
+build-timing.mjs -------- MIDI ticks -> ms (handles tempo changes)
+  |                        + section marker extraction with pixel positions
+  |                        formula: ms = ticks * (60000 / (bpm * 960))
   v
-generate-frames.mjs ---- raw pixel crop from strip + cursor alpha blend
-  |                       + watermark removal (horizontal + vertical)
-  |                       ~600 frames/sec throughput
+generate-frames.mjs ----- raw pixel crop from strip + cursor alpha blend
+  |                        + watermark removal (horizontal + vertical)
+  |                        + section marker label rendering (SVG -> pixel burn)
+  |                        ~600 frames/sec throughput
   v
-encode-video.mjs ---- ffmpeg stdin pipe (raw RGBA -> ProRes 4444 / H.264)
-  |                    platform-aware bitrate, audio codec, sample rate
+encode-video.mjs -------- ffmpeg stdin pipe (raw RGBA -> ProRes 4444 / H.264)
+  |                        platform-aware bitrate, audio codec, sample rate
   v
-index.mjs ---- CLI orchestrator, arg parser, composite pipeline
-  |             multi-track stacking via sharp
+index.mjs --------------- CLI orchestrator, arg parser, composite pipeline
+  |                        multi-track stacking via sharp, tuning detection
+  |
+  +-- batch.mjs ---------- Multi-file/multi-platform batch rendering
+  +-- composite-reel.mjs - Background video/animation + tab overlay compositing
+  |                        + neon-guitar-bg.mjs (Canvas 2D animation renderer)
+  +-- preview.mjs -------- HTTP server + browser UI (alphaTab player)
+  |                        + multi-track color-coded toggle chips
   v
-.mov or .mp4 (or direct composite via ffmpeg filter_complex)
+.mov or .mp4 (or composite reel with cinematic background)
 ```
 
 ## Requirements
@@ -302,6 +354,7 @@ index.mjs ---- CLI orchestrator, arg parser, composite pipeline
 - `@coderline/alphatab` -- GP file parsing + notation rendering engine
 - `@coderline/alphaskia` + `alphaskia-macos` -- Skia-based PNG rendering
 - `sharp` -- strip decode + multi-track compositing
+- `@napi-rs/canvas` -- headless Canvas 2D for background animation rendering
 - ffmpeg -- video encoding (system install)
 
 ## Platform Spec Sources
