@@ -1,0 +1,15 @@
+{
+  "name": "gp-tab-video",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Generate scrolling guitar tab overlay videos from Guitar Pro files",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "@coderline/alphatab": "^1.8.1",
+    "@coderline/alphaskia": "^3.4.135",
+    "@coderline/alphaskia-macos": "^3.4.135",
+    "sharp": "^0.33.0"
+  }
+}
