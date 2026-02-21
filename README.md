@@ -29,7 +29,7 @@ Fully functional CLI tool. Renders a 3-min song in ~9 seconds at 30fps.
 - One-command composite over playthrough footage via `--video`
 - ProRes 4444 alpha output for NLE compositing
 - Customizable cursor color and width
-- Platform presets: `youtube`, `youtube-4k`, `youtube-shorts`, `instagram`, `instagram-story`, `instagram-feed`, `instagram-carousel`
+- Platform presets: YouTube, Instagram (Reels/Story/Feed/Carousel), Facebook (Reels/Story)
 - Vertical (9:16) video support with safe zone margins
 
 ## End Goal
@@ -118,6 +118,19 @@ node src/index.mjs song.gp 0 --platform instagram --video playthrough.mp4
 
 All Instagram presets: 30fps, H.264, AAC 256kbps, 48kHz. File size: 4GB (Reels), 100MB (Stories/Feed).
 
+**Facebook:**
+
+As of June 2025, all Facebook videos are Reels -- there's no separate "feed video" format anymore.
+
+| Preset | Resolution | Aspect | Bitrate | Max Duration | Safe Zone | Notes |
+|--------|-----------|--------|---------|-------------|-----------|-------|
+| `facebook` | 1080x1920 | 9:16 | 8 Mbps | No cap | 672px bottom (!), 269px top | All videos are Reels now. Bottom safe zone is massive (35%). |
+| `facebook-story` | 1080x1920 | 9:16 | 6 Mbps | 20s/card, 2min total | 250px top and bottom | 24hr lifespan, splits at 15s |
+
+All Facebook presets: 30fps, H.264, AAC 192kbps, 48kHz. File size: 4GB max.
+
+**Facebook vs Instagram safe zone warning:** Facebook's bottom safe zone is 672px (35% of 1920) vs Instagram's 320px (17%). Tab overlay placement is significantly higher on Facebook. The `--platform facebook` preset handles this automatically when compositing with `--video`.
+
 ### All Options
 
 ```
@@ -137,7 +150,7 @@ Options:
   --scale N         Notation scale factor (default: 1.0)
   --cursor-color C  Cursor color: red, white, cyan, green, yellow, orange
   --cursor-width N  Cursor width in px (default: 3)
-  --platform NAME   Platform preset (youtube, youtube-4k, youtube-shorts, instagram, instagram-story, instagram-feed, instagram-carousel)
+  --platform NAME   Platform preset (see table above)
   --vertical        9:16 vertical output (auto-set by platform presets)
 ```
 
@@ -237,6 +250,9 @@ ffmpeg stdin pipe ---- raw RGBA -> ProRes 4444 / H.264 (platform-optimized bitra
 - [Instagram safe zones (2026)](https://zeely.ai/blog/master-instagram-safe-zones/)
 - [Instagram Reels dimensions (2026)](https://help.instagram.com/1038071743007909)
 - [Instagram carousel sizes (2026)](https://www.overvisual.com/tools/instagram-carousel-size)
+- [Facebook video size & specs (2026)](https://www.aiarty.com/knowledge-base/facebook-video-size.htm)
+- [Facebook Reels dimensions (2026)](https://www.aiarty.com/knowledge-base/facebook-reel-size.htm)
+- [Facebook Reels safe zones (2026)](https://sendshort.ai/guides/facebook-reels-size/)
 
 ## Dependencies
 

@@ -14,6 +14,9 @@ import * as fs from 'fs';
 //   Instagram specs: https://socialrails.com/blog/instagram-video-size-format-specifications-guide
 //   Instagram safe zones: https://zeely.ai/blog/master-instagram-safe-zones/
 //   Instagram carousel: https://www.overvisual.com/tools/instagram-carousel-size
+//   Facebook specs: https://www.aiarty.com/knowledge-base/facebook-video-size.htm
+//   Facebook Reels: https://www.aiarty.com/knowledge-base/facebook-reel-size.htm
+//   Facebook safe zones: https://sendshort.ai/guides/facebook-reels-size/
 const PLATFORM_PRESETS = {
   // YouTube landscape (16:9) -- standard playthrough format
   youtube: {
@@ -116,6 +119,41 @@ const PLATFORM_PRESETS = {
     safeMarginBottom: 50,
     safeMarginTop: 50,
     description: 'Instagram Carousel 1080x1350 4:5 (60s/slide, 20 slides)',
+  },
+  // --- Facebook formats ---
+  // As of June 2025, ALL Facebook videos are Reels. No separate feed video format.
+  // Reels (9:16 vertical) -- 1080x1920, no duration cap. 15-30s performs best.
+  // Bitrate 5-8 Mbps for 1080p. AAC 128kbps+ (lower floor than IG).
+  // CRITICAL: FB bottom safe zone is 35% (~672px) -- much larger than IG (320px).
+  'facebook': {
+    width: 1080,
+    fps: 30,
+    scale: 1.3,
+    cursorWidth: 3,
+    videoBitrate: '8M',
+    audioBitrate: '192k',
+    audioSampleRate: 48000,
+    vertical: true,
+    // Safe zone: 14% top (~269px), 35% bottom (~672px), 6% sides (~65px)
+    // FB overlays like/comment/share, description, music info at bottom
+    safeMarginBottom: 672,
+    safeMarginTop: 269,
+    description: 'Facebook Reels 1080x1920 9:16 (no duration cap)',
+  },
+  // Facebook Stories -- 1080x1920, 20 sec/card, 2 min total, splits at 15s
+  'facebook-story': {
+    width: 1080,
+    fps: 30,
+    scale: 1.3,
+    cursorWidth: 3,
+    videoBitrate: '6M',
+    audioBitrate: '192k',
+    audioSampleRate: 48000,
+    vertical: true,
+    // Safe zone: 250px top and bottom
+    safeMarginBottom: 250,
+    safeMarginTop: 250,
+    description: 'Facebook Story 1080x1920 9:16 (20s cards, 24hr)',
   },
 };
 
