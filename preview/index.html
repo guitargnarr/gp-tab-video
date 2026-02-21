@@ -17,6 +17,9 @@
       background: #222; color: #fff; border: 1px solid #444; border-radius: 4px;
       padding: 4px 8px; font-size: 13px;
     }
+    .toolbar select[multiple] {
+      min-height: 28px; max-height: 80px;
+    }
     .toolbar button {
       background: #c33; color: #fff; border: none; border-radius: 4px;
       padding: 6px 14px; cursor: pointer; font-size: 13px; font-weight: 600;
@@ -25,11 +28,26 @@
     .toolbar button:disabled { background: #444; cursor: not-allowed; }
     .toolbar .spacer { flex: 1; }
 
+    .track-chips {
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .track-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 10px; border-radius: 4px; font-size: 12px;
+      cursor: pointer; border: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .track-chip.active { border-color: currentColor; }
+    .track-chip:not(.active) { opacity: 0.4; }
+    .track-chip .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+
     .info { padding: 8px 20px; font-size: 12px; color: #888; background: #111; }
     .info span { margin-right: 16px; }
 
     #alphaTab {
-      width: 100%; overflow: hidden;
+      width: 100%; overflow: auto;
       position: relative;
     }
 
@@ -55,8 +73,8 @@
 
 <div class="toolbar">
   <input type="file" id="fileInput" accept=".gp,.gp3,.gp4,.gp5,.gp6,.gp7,.gpx">
-  <label>Track:</label>
-  <select id="trackSelect"></select>
+  <label>Tracks:</label>
+  <div class="track-chips" id="trackChips"></div>
   <label>Layout:</label>
   <select id="layoutSelect">
     <option value="horizontal">Horizontal (video preview)</option>
@@ -78,17 +96,26 @@
 <div id="alphaTab" class="hidden"></div>
 
 <script type="module">
-  // Load alphaTab from node_modules (served by the preview server)
   const script = document.createElement('script');
   script.src = '/node_modules/@coderline/alphatab/dist/alphaTab.js';
   script.onload = () => initApp();
   document.head.appendChild(script);
 
+  // ERRA-inspired track color palettes
+  const TRACK_COLORS = [
+    { name: 'white',  rgb: [255, 255, 255], css: '#ffffff' },
+    { name: 'pink',   rgb: [255, 120, 180], css: '#ff78b4' },
+    { name: 'cyan',   rgb: [100, 220, 255], css: '#64dcff' },
+    { name: 'gold',   rgb: [255, 200, 80],  css: '#ffc850' },
+    { name: 'green',  rgb: [120, 255, 160], css: '#78ffa0' },
+  ];
+
   let api = null;
+  let activeTracks = new Set();
 
   function initApp() {
     const fileInput = document.getElementById('fileInput');
-    const trackSelect = document.getElementById('trackSelect');
+    const trackChips = document.getElementById('trackChips');
     const layoutSelect = document.getElementById('layoutSelect');
     const playBtn = document.getElementById('playBtn');
     const stopBtn = document.getElementById('stopBtn');
@@ -110,7 +137,9 @@
     });
 
     // Check for server-provided file
+    let preselectedTracks = null;
     fetch('/api/file-info').then(r => r.json()).then(info => {
+      if (info.tracks) preselectedTracks = info.tracks;
       if (info.file) {
         infoBar.innerHTML = `<span>Loading ${info.file}...</span>`;
         loadFromUrl('/api/file');
@@ -129,10 +158,69 @@
       initAlphaTab(new Uint8Array(buffer), filename);
     }
 
+    function renderSelectedTracks() {
+      if (!api || !api.score) return;
+      const tracks = [...activeTracks].sort().map(i => api.score.tracks[i]);
+      if (tracks.length === 0) return;
+
+      // Apply per-track colors
+      let colorIdx = 0;
+      for (const idx of [...activeTracks].sort()) {
+        const track = api.score.tracks[idx];
+        const c = TRACK_COLORS[colorIdx % TRACK_COLORS.length];
+        track.color = new alphaTab.model.Color(c.rgb[0], c.rgb[1], c.rgb[2], 255);
+        colorIdx++;
+      }
+
+      api.renderTracks(tracks);
+    }
+
+    function buildTrackChips(score) {
+      trackChips.innerHTML = '';
+      activeTracks.clear();
+
+      // Use preselected tracks if provided, otherwise default to track 0
+      const initialTracks = preselectedTracks || [0];
+      for (const idx of initialTracks) {
+        if (idx < score.tracks.length) activeTracks.add(idx);
+      }
+      if (activeTracks.size === 0) activeTracks.add(0);
+
+      score.tracks.forEach((t, i) => {
+        const chip = document.createElement('div');
+        chip.className = 'track-chip' + (activeTracks.has(i) ? ' active' : '');
+        const c = TRACK_COLORS[i % TRACK_COLORS.length];
+        chip.style.color = c.css;
+        chip.style.background = c.css + '18'; // 10% opacity fill
+
+        const dot = document.createElement('span');
+        dot.className = 'dot';
+        dot.style.background = c.css;
+        chip.appendChild(dot);
+
+        const label = document.createTextNode(`[${i}] ${t.name}`);
+        chip.appendChild(label);
+
+        chip.addEventListener('click', () => {
+          if (activeTracks.has(i)) {
+            if (activeTracks.size > 1) {
+              activeTracks.delete(i);
+              chip.classList.remove('active');
+            }
+          } else {
+            activeTracks.add(i);
+            chip.classList.add('active');
+          }
+          renderSelectedTracks();
+        });
+
+        trackChips.appendChild(chip);
+      });
+    }
+
     function initAlphaTab(data, filename) {
       dropZone.classList.add('hidden');
       container.classList.remove('hidden');
-      container.style.height = (window.innerHeight - 90) + 'px';
 
       if (api) {
         api.destroy();
@@ -145,6 +233,8 @@
       settings.player.enableCursor = true;
       settings.player.enableUserInteraction = true;
       settings.player.scrollMode = alphaTab.ScrollMode.Continuous;
+      settings.player.scrollSpeed = 300;
+      settings.player.scrollElement = container;
       settings.player.soundFont = '/node_modules/@coderline/alphatab/dist/soundfont/sonivox.sf2';
       settings.display.layoutMode = alphaTab.LayoutMode.Horizontal;
 
@@ -160,14 +250,7 @@
       api = new alphaTab.AlphaTabApi(container, settings);
 
       api.scoreLoaded.on((score) => {
-        // Populate track selector
-        trackSelect.innerHTML = '';
-        score.tracks.forEach((t, i) => {
-          const opt = document.createElement('option');
-          opt.value = i;
-          opt.textContent = `[${i}] ${t.name}`;
-          trackSelect.appendChild(opt);
-        });
+        buildTrackChips(score);
 
         // Tab-only
         for (const track of score.tracks) {
@@ -190,14 +273,14 @@
 
         playBtn.disabled = false;
         stopBtn.disabled = false;
+
+        // If multiple tracks pre-selected, render them now
+        if (activeTracks.size > 1) {
+          setTimeout(() => renderSelectedTracks(), 100);
+        }
       });
 
       api.load(data);
-
-      trackSelect.addEventListener('change', () => {
-        const idx = parseInt(trackSelect.value);
-        api.renderTracks([api.score.tracks[idx]]);
-      });
 
       layoutSelect.addEventListener('change', () => {
         api.settings.display.layoutMode = layoutSelect.value === 'horizontal'
@@ -223,11 +306,7 @@
       });
     }
 
-    // Resize handler
-    window.addEventListener('resize', () => {
-      if (container.classList.contains('hidden')) return;
-      container.style.height = (window.innerHeight - 90) + 'px';
-    });
+    // Resize handled by CSS (auto height)
   }
 </script>
 </body>

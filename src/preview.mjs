@@ -7,8 +7,21 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
-const gpFile = process.argv[2] || null;
-const port = parseInt(process.argv[3] || '3000', 10);
+// Parse args: node src/preview.mjs [file.gp] [--tracks 0,2] [port]
+let gpFile = null;
+let port = 3000;
+let defaultTracks = null;
+
+const args = process.argv.slice(2);
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--tracks' && args[i + 1]) {
+    defaultTracks = args[++i].split(',').map(Number);
+  } else if (/^\d+$/.test(args[i])) {
+    port = parseInt(args[i], 10);
+  } else if (!args[i].startsWith('--')) {
+    gpFile = args[i];
+  }
+}
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -35,7 +48,10 @@ const server = http.createServer((req, res) => {
   // API: serve GP file info
   if (url.pathname === '/api/file-info') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ file: gpFile ? path.basename(gpFile) : null }));
+    res.end(JSON.stringify({
+      file: gpFile ? path.basename(gpFile) : null,
+      tracks: defaultTracks,
+    }));
     return;
   }
 
