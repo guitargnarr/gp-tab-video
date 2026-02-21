@@ -11,6 +11,8 @@ Takes any Guitar Pro file (.gp, .gp5, .gp4, .gp3, .gpx) and outputs a video of s
 - **Transparent overlay** (.mov with alpha) -- ProRes 4444, drop into your NLE as a layer on top of playthrough footage
 - **Direct composite** -- overlay tab onto playthrough footage in one command
 
+**Platform presets** with optimized encoding for YouTube, YouTube Shorts, and Instagram Reels -- including vertical (9:16) output with safe zone awareness.
+
 ## Current State
 
 Fully functional CLI tool. Renders a 3-min song in ~9 seconds at 30fps.
@@ -27,6 +29,8 @@ Fully functional CLI tool. Renders a 3-min song in ~9 seconds at 30fps.
 - One-command composite over playthrough footage via `--video`
 - ProRes 4444 alpha output for NLE compositing
 - Customizable cursor color and width
+- Platform presets: `youtube`, `youtube-4k`, `youtube-shorts`, `instagram`, `instagram-feed`
+- Vertical (9:16) video support with safe zone margins
 
 ## End Goal
 
@@ -65,6 +69,38 @@ node src/index.mjs song.gp 0 --video playthrough.mp4
 node src/index.mjs song.gp 0 --cursor-color cyan --cursor-width 4
 ```
 
+### Platform Presets
+
+One flag sets resolution, FPS, bitrate, and encoding to match each platform's optimal upload specs.
+
+```bash
+# YouTube standard (1920x1080, 30fps, H.264, 12Mbps, AAC 384kbps)
+node src/index.mjs song.gp 0 --platform youtube
+
+# YouTube 4K (3840x2160, 30fps, H.264, 45Mbps)
+node src/index.mjs song.gp 0 --platform youtube-4k
+
+# YouTube Shorts vertical (1080x1920, 30fps, 8Mbps)
+node src/index.mjs song.gp 0 --platform youtube-shorts
+
+# Instagram Reels vertical (1080x1920, 30fps, 8Mbps, AAC 256kbps)
+node src/index.mjs song.gp 0 --platform instagram
+
+# Instagram Feed 4:5 portrait (1080x1350)
+node src/index.mjs song.gp 0 --platform instagram-feed
+
+# Vertical + playthrough composite (tab above IG safe zone)
+node src/index.mjs song.gp 0 --platform instagram --video playthrough.mp4
+```
+
+| Preset | Resolution | FPS | Aspect | Video Bitrate | Audio |
+|--------|-----------|-----|--------|--------------|-------|
+| `youtube` | 1920x1080 | 30 | 16:9 | 12 Mbps | AAC 384k |
+| `youtube-4k` | 3840x2160 | 30 | 16:9 | 45 Mbps | AAC 384k |
+| `youtube-shorts` | 1080x1920 | 30 | 9:16 | 8 Mbps | AAC 256k |
+| `instagram` | 1080x1920 | 30 | 9:16 | 8 Mbps | AAC 256k |
+| `instagram-feed` | 1080x1350 | 30 | 4:5 | 8 Mbps | AAC 256k |
+
 ### All Options
 
 ```
@@ -84,17 +120,58 @@ Options:
   --scale N         Notation scale factor (default: 1.0)
   --cursor-color C  Cursor color: red, white, cyan, green, yellow, orange
   --cursor-width N  Cursor width in px (default: 3)
+  --platform NAME   Platform preset (youtube, youtube-4k, youtube-shorts, instagram, instagram-feed)
+  --vertical        9:16 vertical output (auto-set by platform presets)
 ```
+
+CLI flags override preset values, so `--platform instagram --fps 60` uses all IG defaults but at 60fps.
 
 ## Intended Workflow
 
-1. Write/arrange in Guitar Pro 7
-2. Record guitar in Logic Pro (tempo set in session)
-3. Film playthrough on iPhone 16 Pro Max
-4. Run: `node src/index.mjs song.gp 0 --video playthrough.mp4 --fps 60`
-5. Upload to YouTube
+### YouTube (Horizontal Playthrough)
 
-The GP file's BPM matches your Logic session. The tab video starts at beat 1 bar 1 -- align to downbeat in your editor, or let `--video` handle compositing.
+1. Write/arrange in Guitar Pro 7
+2. Record guitar in Logic Pro (session tempo = GP file BPM)
+3. Film playthrough horizontally on iPhone 16 Pro Max (4K 30fps, HDR OFF)
+4. AirDrop or USB-C transfer to Mac
+5. Run: `node src/index.mjs song.gp 0 --platform youtube --video playthrough.mp4`
+6. Upload to YouTube
+
+### Instagram Reels / YouTube Shorts (Vertical)
+
+1. Write/arrange in Guitar Pro 7
+2. Record guitar in Logic Pro
+3. Film playthrough vertically on iPhone 16 Pro Max (4K 30fps, HDR OFF)
+4. Transfer to Mac
+5. Run: `node src/index.mjs song.gp 0 --platform instagram --video playthrough.mp4`
+6. Upload to Instagram Reels (max 3 min, 1080x1920)
+
+For YouTube Shorts, swap `--platform instagram` for `--platform youtube-shorts`.
+
+### NLE Compositing (Premiere Pro / DaVinci Resolve)
+
+For maximum control, generate the tab overlay separately and composite in your editor:
+
+1. `node src/index.mjs song.gp 0 --platform youtube --transparent` (outputs ProRes 4444 .mov with alpha)
+2. Open Premiere Pro 2026
+3. V1: iPhone footage, V2: Logic audio (WAV 48kHz 24-bit), V3: Tab overlay .mov
+4. Scale/position tab overlay at bottom of frame
+5. Export: Match Source - High Bitrate, or use YouTube/IG presets
+
+### iPhone 16 Pro Max Camera Settings
+
+- **Formats:** HEVC (recommended) or Apple ProRes (max quality, needs external SSD)
+- **Resolution:** 4K
+- **Frame Rate:** 30fps (cinematic) or 60fps (fast playing). Match `--fps` flag.
+- **HDR Video:** OFF (Rec.709 SDR avoids color mismatch with tab overlay)
+- **Stabilization:** Standard (not Action Mode, which crops)
+- **Grid:** ON (helps framing)
+
+### Transfer to Mac
+
+- **AirDrop** -- fastest for single clips
+- **USB-C cable + Image Capture** -- best for multiple clips or ProRes (preserves original quality)
+- **iCloud Photos** -- automatic but slower; export unmodified original from Photos
 
 ## Requirements
 
@@ -120,10 +197,10 @@ Timing engine ---- MIDI ticks -> ms, tempo changes, beat-to-pixel map
 Frame generator ---- raw pixel crop + cursor blend, ~600 frames/sec
   |
   v
-ffmpeg stdin pipe ---- raw RGBA -> ProRes 4444 / H.264
+ffmpeg stdin pipe ---- raw RGBA -> ProRes 4444 / H.264 (platform-optimized bitrate)
   |
   v
-.mov or .mp4 (or direct composite with --video)
+.mov or .mp4 (or direct composite with --video, vertical-aware for 9:16)
 ```
 
 ## Performance
@@ -131,8 +208,17 @@ ffmpeg stdin pipe ---- raw RGBA -> ProRes 4444 / H.264
 | Scenario | Time |
 |----------|------|
 | 3 min song, 30fps, 1080p, single track | ~9s |
+| 3 min song, 30fps, instagram preset (1080w) | ~16s |
 | 3 min song, 60fps, 1080p, 1.3x scale | ~15s |
 | 3 min song, 30fps, multi-track (2 tracks) | ~25s |
+
+## Platform Spec Sources
+
+- [YouTube recommended upload encoding settings](https://support.google.com/youtube/answer/1722171?hl=en)
+- [YouTube Shorts dimensions guide (2026)](https://vidiq.com/blog/post/youtube-shorts-vertical-video/)
+- [Instagram Reels export settings (2026)](https://www.stayabundant.com/blog/best-instagram-reels-export-settings)
+- [Instagram Reels safe zones (2026)](https://zeely.ai/blog/master-instagram-safe-zones/)
+- [Instagram Reels dimensions (2026)](https://help.instagram.com/1038071743007909)
 
 ## Dependencies
 

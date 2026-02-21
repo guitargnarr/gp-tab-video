@@ -2,7 +2,18 @@ import { spawn } from 'child_process';
 
 const FFMPEG = '/opt/homebrew/bin/ffmpeg';
 
-export function createEncoder(outputPath, width, height, fps, transparent = true) {
+/**
+ * @param {string} outputPath
+ * @param {number} width
+ * @param {number} height
+ * @param {number} fps
+ * @param {boolean} transparent
+ * @param {object} platformOpts - platform-specific encoding options
+ * @param {string} platformOpts.videoBitrate - e.g. '8M', '12M', '45M'
+ * @param {string} platformOpts.audioBitrate - e.g. '256k', '384k'
+ * @param {number} platformOpts.audioSampleRate - e.g. 48000
+ */
+export function createEncoder(outputPath, width, height, fps, transparent = true, platformOpts = {}) {
   // H.264 yuv420p requires even dimensions
   const w = width % 2 === 0 ? width : width + 1;
   const h = height % 2 === 0 ? height : height + 1;
@@ -37,10 +48,12 @@ export function createEncoder(outputPath, width, height, fps, transparent = true
       '-i', 'pipe:0',
       '-c:v', 'libvpx-vp9',
       '-pix_fmt', 'yuva420p',
-      '-b:v', '2M',
+      '-b:v', platformOpts.videoBitrate || '2M',
       outputPath,
     ];
   } else {
+    // H.264 MP4 -- use platform bitrate if provided, otherwise CRF 18
+    const useBitrate = !!platformOpts.videoBitrate;
     args = [
       '-y',
       '-f', 'rawvideo',
@@ -51,7 +64,11 @@ export function createEncoder(outputPath, width, height, fps, transparent = true
       '-vf', `pad=${w}:${h}:0:0:black`,
       '-c:v', 'libx264',
       '-pix_fmt', 'yuv420p',
-      '-crf', '18',
+      // Platform preset: use target bitrate for exact spec compliance
+      // Default: use CRF for quality-based encoding (smaller files)
+      ...(useBitrate
+        ? ['-b:v', platformOpts.videoBitrate, '-maxrate', platformOpts.videoBitrate, '-bufsize', platformOpts.videoBitrate]
+        : ['-crf', '18']),
       outputPath,
     ];
   }

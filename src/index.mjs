@@ -7,6 +7,79 @@ import { createEncoder } from './encode-video.mjs';
 import * as path from 'path';
 import * as fs from 'fs';
 
+// --- Platform presets ---
+// Sources:
+//   YouTube: https://support.google.com/youtube/answer/1722171
+//   YouTube Shorts: https://vidiq.com/blog/post/youtube-shorts-vertical-video/
+//   Instagram Reels: https://www.stayabundant.com/blog/best-instagram-reels-export-settings
+//   Instagram safe zones: https://zeely.ai/blog/master-instagram-safe-zones/
+const PLATFORM_PRESETS = {
+  // YouTube landscape (16:9) -- standard playthrough format
+  youtube: {
+    width: 1920,
+    fps: 30,
+    scale: 1.0,
+    cursorWidth: 3,
+    // H.264, CRF 18 (~8-12 Mbps), AAC 384kbps stereo, 48kHz
+    videoBitrate: '12M',
+    audioBitrate: '384k',
+    audioSampleRate: 48000,
+    description: 'YouTube 1080p 16:9 (standard playthrough)',
+  },
+  'youtube-4k': {
+    width: 3840,
+    fps: 30,
+    scale: 1.3,
+    cursorWidth: 5,
+    videoBitrate: '45M',
+    audioBitrate: '384k',
+    audioSampleRate: 48000,
+    description: 'YouTube 4K 16:9',
+  },
+  // YouTube Shorts (9:16 vertical) -- 1080x1920, max 3 min
+  'youtube-shorts': {
+    width: 1080,
+    fps: 30,
+    scale: 1.3,
+    cursorWidth: 3,
+    videoBitrate: '8M',
+    audioBitrate: '256k',
+    audioSampleRate: 48000,
+    vertical: true,
+    // Safe zone: keep content in central 4:5 area
+    safeMarginBottom: 200,  // px from bottom to avoid UI overlap
+    description: 'YouTube Shorts 1080x1920 9:16 (max 3 min)',
+  },
+  // Instagram Reels (9:16 vertical) -- 1080x1920, max 3 min
+  // IG does NOT support 4K; caps at 1080p. 30fps recommended over 60fps.
+  'instagram': {
+    width: 1080,
+    fps: 30,
+    scale: 1.3,
+    cursorWidth: 3,
+    videoBitrate: '8M',
+    audioBitrate: '256k',
+    audioSampleRate: 48000,
+    vertical: true,
+    // Safe zone: 320px from bottom, 108px from top (captions, buttons)
+    safeMarginBottom: 320,
+    safeMarginTop: 108,
+    description: 'Instagram Reels 1080x1920 9:16 (max 3 min)',
+  },
+  // Instagram feed post (4:5 portrait) -- cropped from 9:16 in feed
+  'instagram-feed': {
+    width: 1080,
+    fps: 30,
+    scale: 1.3,
+    cursorWidth: 3,
+    videoBitrate: '8M',
+    audioBitrate: '256k',
+    audioSampleRate: 48000,
+    vertical: true,
+    description: 'Instagram Feed 1080x1350 4:5',
+  },
+};
+
 // --- Arg parsing ---
 function parseArgs(argv) {
   const opts = {
@@ -20,6 +93,13 @@ function parseArgs(argv) {
     cursorColor: 'red',
     cursorWidth: 3,
     scale: 1.0,        // notation scale factor
+    platform: null,    // platform preset name
+    vertical: false,   // 9:16 vertical output
+    videoBitrate: null,
+    audioBitrate: null,
+    audioSampleRate: null,
+    safeMarginBottom: 0,
+    safeMarginTop: 0,
   };
 
   const positional = [];
@@ -41,6 +121,10 @@ function parseArgs(argv) {
       opts.cursorWidth = parseInt(argv[++i], 10);
     } else if (a === '--scale' && argv[i + 1]) {
       opts.scale = parseFloat(argv[++i]);
+    } else if (a === '--platform' && argv[i + 1]) {
+      opts.platform = argv[++i];
+    } else if (a === '--vertical') {
+      opts.vertical = true;
     } else if (!a.startsWith('--')) {
       positional.push(a);
     }
@@ -51,6 +135,28 @@ function parseArgs(argv) {
     opts.tracks = positional[1].split(',').map((t) => parseInt(t, 10));
   }
   if (positional[2]) opts.output = positional[2];
+
+  // Apply platform preset (CLI flags override preset values)
+  if (opts.platform) {
+    const preset = PLATFORM_PRESETS[opts.platform];
+    if (!preset) {
+      console.error(`Unknown platform: ${opts.platform}`);
+      console.error(`Available: ${Object.keys(PLATFORM_PRESETS).join(', ')}`);
+      process.exit(1);
+    }
+    // Only apply preset values if not explicitly set by CLI flags
+    const cliFlags = new Set(argv.filter((a) => a.startsWith('--')).map((a) => a.replace(/^--/, '')));
+    if (!cliFlags.has('width')) opts.width = preset.width;
+    if (!cliFlags.has('fps')) opts.fps = preset.fps;
+    if (!cliFlags.has('scale')) opts.scale = preset.scale;
+    if (!cliFlags.has('cursor-width')) opts.cursorWidth = preset.cursorWidth;
+    if (preset.vertical && !cliFlags.has('vertical')) opts.vertical = preset.vertical;
+    opts.videoBitrate = preset.videoBitrate;
+    opts.audioBitrate = preset.audioBitrate;
+    opts.audioSampleRate = preset.audioSampleRate;
+    opts.safeMarginBottom = preset.safeMarginBottom || 0;
+    opts.safeMarginTop = preset.safeMarginTop || 0;
+  }
 
   return opts;
 }
@@ -74,12 +180,28 @@ if (!opts.gpFile) {
   console.error('  --scale N         Notation scale factor (default: 1.0)');
   console.error('  --cursor-color C  Cursor color: red, white, cyan, etc (default: red)');
   console.error('  --cursor-width N  Cursor width in px (default: 3)');
+  console.error('  --platform NAME   Platform preset (overrides width/fps/scale/bitrate)');
+  console.error('  --vertical        9:16 vertical output (auto-set by platform presets)');
+  console.error('');
+  console.error('Platform Presets:');
+  for (const [name, p] of Object.entries(PLATFORM_PRESETS)) {
+    console.error(`  ${name.padEnd(18)} ${p.description}`);
+  }
   console.error('');
   console.error('Examples:');
   console.error('  node src/index.mjs song.gp                              # 1080p 30fps standalone');
   console.error('  node src/index.mjs song.gp 0 --transparent --fps 60     # 60fps overlay');
   console.error('  node src/index.mjs song.gp 0,1 --width 3840 --fps 60   # 4K multi-track');
   console.error('  node src/index.mjs song.gp 0 --video playthrough.mp4   # Composite');
+  console.error('');
+  console.error('  # Platform-optimized:');
+  console.error('  node src/index.mjs song.gp 0 --platform youtube         # YouTube 1080p');
+  console.error('  node src/index.mjs song.gp 0 --platform youtube-4k      # YouTube 4K');
+  console.error('  node src/index.mjs song.gp 0 --platform youtube-shorts  # Shorts 9:16');
+  console.error('  node src/index.mjs song.gp 0 --platform instagram       # Reels 9:16');
+  console.error('');
+  console.error('  # Vertical with playthrough footage:');
+  console.error('  node src/index.mjs song.gp 0 --platform instagram --video playthrough.mp4');
   process.exit(1);
 }
 
@@ -101,6 +223,14 @@ const cursorRgb = CURSOR_COLORS[opts.cursorColor] || CURSOR_COLORS.red;
 
 async function main() {
   const startTime = Date.now();
+
+  // Log platform preset if used
+  if (opts.platform) {
+    const preset = PLATFORM_PRESETS[opts.platform];
+    console.log(`Platform: ${opts.platform} -- ${preset.description}`);
+    if (opts.vertical) console.log(`  Orientation: vertical (9:16)`);
+    if (opts.videoBitrate) console.log(`  Target bitrate: ${opts.videoBitrate} video, ${opts.audioBitrate} audio`);
+  }
 
   console.log(`Loading ${path.basename(opts.gpFile)}...`);
   const { score, settings } = await loadScore(opts.gpFile);
@@ -154,14 +284,18 @@ async function main() {
 
   // For multi-track: stack strips vertically
   const viewportWidth = Math.min(opts.width, strips[0].totalWidth);
-  let outputHeight;
+  let tabHeight;
   if (strips.length === 1) {
-    outputHeight = strips[0].totalHeight;
+    tabHeight = strips[0].totalHeight;
   } else {
     // Stack with 4px gap between tracks
     const gap = 4;
-    outputHeight = strips.reduce((h, s) => h + s.totalHeight, 0) + gap * (strips.length - 1);
+    tabHeight = strips.reduce((h, s) => h + s.totalHeight, 0) + gap * (strips.length - 1);
   }
+
+  // Output dimensions: for standalone tab renders, use tab height
+  // For vertical presets without --video, still render just the tab strip
+  const outputHeight = tabHeight;
 
   const totalFrames = Math.ceil((songDurationMs / 1000) * opts.fps);
   console.log(`\nGenerating ${totalFrames} frames at ${opts.fps}fps (${viewportWidth}x${outputHeight})...`);
@@ -178,7 +312,12 @@ async function main() {
   }
 
   const alphaOutput = encoderOutput.endsWith('.mov') || encoderOutput.endsWith('.webm');
-  const encoder = createEncoder(encoderOutput, viewportWidth, outputHeight, opts.fps, alphaOutput);
+  const platformOpts = {
+    videoBitrate: opts.videoBitrate,
+    audioBitrate: opts.audioBitrate,
+    audioSampleRate: opts.audioSampleRate,
+  };
+  const encoder = createEncoder(encoderOutput, viewportWidth, outputHeight, opts.fps, alphaOutput, platformOpts);
 
   let frameCount = 0;
 
@@ -267,16 +406,59 @@ async function main() {
   if (compositeAfter && opts.video) {
     console.log(`\nCompositing over ${path.basename(opts.video)}...`);
     const { execSync } = await import('child_process');
-    const ffmpegCmd = [
-      '/opt/homebrew/bin/ffmpeg', '-y',
+
+    // Build ffmpeg filter based on orientation
+    let filterComplex;
+    let outputArgs;
+
+    if (opts.vertical) {
+      // Vertical (9:16): footage fills 1080x1920, tab overlay at bottom above safe zone
+      // Scale footage to 1080 wide, 1920 tall (crop/pad to fit)
+      // Tab sits above the safe margin bottom (320px for IG, 200px for Shorts)
+      const safeBottom = opts.safeMarginBottom || 200;
+      const tabScale = `scale=${viewportWidth}:-1`;
+      filterComplex = [
+        // Scale footage to vertical frame, crop to 9:16 center
+        `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[bg]`,
+        // Tab overlay: keep at rendered width, position above bottom safe zone
+        `[1:v]${tabScale}[tab]`,
+        `[bg][tab]overlay=0:H-h-${safeBottom}`,
+      ].join(';');
+      outputArgs = [
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        ...(opts.videoBitrate
+          ? ['-b:v', opts.videoBitrate, '-maxrate', opts.videoBitrate, '-bufsize', opts.videoBitrate]
+          : ['-crf', '18']),
+        '-c:a', 'aac',
+        ...(opts.audioBitrate ? ['-b:a', opts.audioBitrate] : ['-b:a', '256k']),
+        '-ar', String(opts.audioSampleRate || 48000),
+      ];
+    } else {
+      // Horizontal (16:9): original behavior -- tab at bottom 25% of frame
+      filterComplex = `[1:v]scale=-1:ih*0.25[tab];[0:v][tab]overlay=0:H-h-20`;
+      outputArgs = [
+        '-c:v', 'libx264',
+        ...(opts.videoBitrate
+          ? ['-b:v', opts.videoBitrate, '-maxrate', opts.videoBitrate, '-bufsize', opts.videoBitrate]
+          : ['-crf', '18']),
+        '-c:a', 'aac',
+        ...(opts.audioBitrate ? ['-b:a', opts.audioBitrate] : ['-b:a', '384k']),
+        '-ar', String(opts.audioSampleRate || 48000),
+      ];
+    }
+
+    const ffmpegArgs = [
+      '-y',
       '-i', opts.video,
       '-i', encoderOutput,
-      '-filter_complex',
-      `[1:v]scale=-1:ih*0.25[tab];[0:v][tab]overlay=0:H-h-20`,
-      '-c:v', 'libx264', '-crf', '18',
-      '-c:a', 'copy',
+      '-filter_complex', filterComplex,
+      ...outputArgs,
       outputFile,
-    ].map((a) => `"${a}"`).join(' ');
+    ];
+
+    console.log(`  Filter: ${filterComplex}`);
+    const ffmpegCmd = ['/opt/homebrew/bin/ffmpeg', ...ffmpegArgs].map((a) => `"${a}"`).join(' ');
     execSync(ffmpegCmd, { stdio: 'inherit' });
 
     // Clean up temp tab-only file
@@ -284,11 +466,13 @@ async function main() {
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  const orientation = opts.vertical ? '9:16 vertical' : '16:9 horizontal';
   console.log(`\nDone in ${elapsed}s!`);
   console.log(`  Output: ${outputFile}`);
   console.log(`  Frames: ${frameCount}`);
   console.log(`  Duration: ${(songDurationMs / 1000).toFixed(1)}s`);
-  console.log(`  Resolution: ${viewportWidth}x${outputHeight} @ ${opts.fps}fps`);
+  console.log(`  Resolution: ${viewportWidth}x${outputHeight} @ ${opts.fps}fps (${orientation})`);
+  if (opts.platform) console.log(`  Platform: ${opts.platform}`);
   console.log(`\nOpen with: open '${outputFile}'`);
 }
 
