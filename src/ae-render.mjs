@@ -157,10 +157,10 @@ function buildFilterGraph(template, tabProbe) {
 
   // Dark band behind tab for readability (optional)
   if (tab.darkBand !== false) {
-    const bandHeight = `h+${tabPad * 2}`;
+    const tabH = Math.round(tabProbe.height * tabScale);
+    const bandHeight = tabH + tabPad * 2;
     const bandY = `${tabY}-${tabPad}`;
-    filters.push(`color=black@0.6:${W}x1[bandbase]`);
-    filters.push(`[bandbase]scale=${W}:${bandHeight}[band]`);
+    filters.push(`color=black@0.6:${W}x${bandHeight}[band]`);
     filters.push(`[${bgLabel}][band]overlay=0:${bandY}[withband]`);
     bgLabel = 'withband';
   }
@@ -231,6 +231,25 @@ const BUILT_IN_TEMPLATES = {
     tab: { y: 'bottom', padding: 30, darkBand: true },
     effects: { darken: 0.35, colorTint: { blue: 0.15 }, vignette: true },
   },
+  'reel': {
+    width: 1080,
+    height: 1920,
+    background: { type: 'video' },
+    text: [],
+    tab: { y: 'bottom', scale: 0.5625, padding: 30, darkBand: true },
+    effects: { darken: 0.15, vignette: true },
+  },
+  'reel-title': {
+    width: 1080,
+    height: 1920,
+    background: { type: 'video' },
+    text: [
+      { content: '{title}', x: 'center', y: 1640, fontSize: 44, color: 'white', shadowColor: 'black@0.8' },
+      { content: '{artist}', x: 'center', y: 1695, fontSize: 26, color: 'gray', alpha: 0.7 },
+    ],
+    tab: { y: 'bottom', scale: 0.5625, padding: 30, darkBand: true },
+    effects: { darken: 0.15, vignette: true },
+  },
 };
 
 async function main() {
@@ -246,9 +265,11 @@ async function main() {
     console.error('  --artist TEXT     Artist name (replaces {artist} in template)');
     console.error('');
     console.error('Built-in templates:');
-    console.error('  cinematic         Dark background + vignette');
-    console.error('  cinematic-title   Dark bg + song title + artist text');
-    console.error('  dark-overlay      Video bg with cinematic grading + dark tab band');
+    console.error('  cinematic         Dark background + vignette (1920x1080)');
+    console.error('  cinematic-title   Dark bg + song title + artist (1920x1080)');
+    console.error('  dark-overlay      Video bg + cinematic grading + dark band (1920x1080)');
+    console.error('  reel              Portrait video bg for IG/TikTok (1080x1920)');
+    console.error('  reel-title        Portrait + song title + artist (1080x1920)');
     console.error('');
     console.error('Template JSON format:');
     console.error('  { "width": 1920, "height": 1080,');
@@ -307,7 +328,7 @@ async function main() {
     if (!fs.existsSync(bgPath)) {
       throw new Error(`Background video not found: ${bgPath}`);
     }
-    bgInputArgs = ['-stream_loop', '-1', '-t', String(tabProbe.duration), '-i', bgPath];
+    bgInputArgs = ['-stream_loop', '-1', '-t', String(tabProbe.duration), '-r', String(tabProbe.fps), '-i', bgPath];
     bgInput = 'video';
   } else if (bg.type === 'image' && bg.source) {
     const bgPath = path.resolve(path.dirname(opts.template || '.'), bg.source);
@@ -340,7 +361,8 @@ async function main() {
     '-c:v', 'libx264',
     '-pix_fmt', 'yuv420p',
     '-crf', '18',
-    '-shortest',
+    '-r', String(tabProbe.fps),
+    '-t', String(tabProbe.duration),
     outputPath,
   ];
 
