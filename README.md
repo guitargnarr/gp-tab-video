@@ -272,6 +272,19 @@ Reads the GP file's tempo map (including mid-song tempo changes and time signatu
 
 Output includes a tempo summary and Logic Pro setup instructions (exact BPM values and bar numbers for tempo automation).
 
+### Adaptive Practice Engine
+
+```bash
+node src/practice.mjs song.gp                       # analyze difficulty per bar
+node src/practice.mjs song.gp session                # generate today's practice session
+node src/practice.mjs song.gp progress               # show mastery across all chunks
+node src/practice.mjs song.gp rate chunk-0:5 chunk-1:3  # rate chunks after practicing
+node src/practice.mjs song.gp click chunk-2          # click track for one chunk
+node src/practice.mjs song.gp reset                  # clear practice state
+```
+
+Analyzes a GP file's difficulty per bar (note density, string crossings, fret span, position shifts, technique complexity), groups bars into practice chunks by pattern similarity, and generates structured 4-phase practice sessions (isolation, context, interleaving, run-through). Tracks mastery with spaced repetition -- chunks advance through tempo tiers (40% to 100%) and review intervals grow as mastery increases. Auto-generates click track WAVs at practice tempos for each chunk.
+
 ### Browser Preview
 
 ```bash
@@ -428,6 +441,7 @@ index.mjs --------------- CLI orchestrator, arg parser, composite pipeline
   |                        + neon-guitar-bg.mjs (Canvas 2D animation)
   +-- preview.mjs -------- HTTP server + browser UI (alphaTab player)
   +-- prep.mjs ----------- Click track WAV from GP tempo map
+  +-- practice.mjs ------- Adaptive practice engine (difficulty, sessions, spaced rep)
   +-- probe-audio.mjs ---- ffprobe wrapper for audio validation
   +-- tuning.mjs --------- Tuning detection from MIDI note values
   v

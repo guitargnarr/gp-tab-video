@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Practice Engine</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #141414; color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; height: 100vh; }
+
+    /* --- Toolbar --- */
+    .toolbar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px; background: #1a1a1a; border-bottom: 1px solid #333;
+    }
+    .toolbar .title { font-size: 14px; font-weight: 700; color: #ff5555; letter-spacing: 0.5px; }
+    .toolbar .file-info { font-size: 12px; color: #aaa; }
+    .toolbar .file-info strong { color: #ddd; }
+    .toolbar .spacer { flex: 1; }
+    .toolbar button {
+      background: #333; color: #fff; border: 1px solid #555; border-radius: 4px;
+      padding: 5px 12px; cursor: pointer; font-size: 12px; font-weight: 600;
+      transition: background 0.15s;
+    }
+    .toolbar button:hover { background: #444; }
+    .toolbar button.active { background: #c33; border-color: #c33; }
+    .toolbar button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .speed-control { display: flex; align-items: center; gap: 6px; }
+    .speed-control label { font-size: 11px; color: #888; }
+    .speed-control input[type="range"] { width: 80px; accent-color: #c33; height: 3px; }
+    .speed-control .speed-val { font-size: 11px; color: #ccc; min-width: 32px; }
+
+    .now-playing {
+      font-size: 11px; color: #ff5555; max-width: 180px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* --- Main layout --- */
+    .main { display: flex; height: calc(100vh - 44px); }
+
+    /* --- Left panel: alphaTab --- */
+    .left-panel {
+      flex: 0 0 65%; position: relative; overflow: hidden;
+      border-right: 1px solid #333;
+    }
+    #alphaTab { width: 100%; height: 100%; overflow: auto; position: relative; }
+
+    /* alphaTab dark theme */
+    .at-surface { background: #141414 !important; }
+    .at-cursor-bar {
+      background: rgba(255, 50, 50, 0.15) !important;
+      z-index: 10 !important;
+    }
+    .at-cursor-beat {
+      background: rgba(255, 50, 50, 0.95) !important;
+      width: 3px !important;
+      z-index: 11 !important;
+    }
+    .at-selection { background: rgba(255, 50, 50, 0.1) !important; }
+
+    /* Chunk highlight overlays -- below cursor */
+    .chunk-overlay {
+      position: absolute; pointer-events: none;
+      border-radius: 3px; opacity: 0.12;
+      transition: opacity 0.2s;
+      z-index: 5;
+    }
+    .chunk-overlay.active { opacity: 0.30; }
+
+    /* --- Right panel --- */
+    .right-panel {
+      flex: 0 0 35%; display: flex; flex-direction: column;
+      background: #1a1a1a; overflow: hidden;
+    }
+
+    /* Tabs */
+    .panel-tabs { display: flex; border-bottom: 1px solid #333; }
+    .panel-tab {
+      flex: 1; padding: 8px 0; text-align: center;
+      font-size: 12px; font-weight: 600; color: #888;
+      cursor: pointer; border-bottom: 2px solid transparent;
+      transition: all 0.15s; user-select: none;
+    }
+    .panel-tab:hover { color: #ccc; }
+    .panel-tab.active { color: #ff5555; border-bottom-color: #ff5555; }
+
+    .panel-content { flex: 1; overflow-y: auto; padding: 12px; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* --- Session tab --- */
+    .phase { margin-bottom: 16px; }
+    .phase-header {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1px; color: #ff5555; margin-bottom: 4px;
+      padding-bottom: 4px; border-bottom: 1px solid #333;
+      display: flex; justify-content: space-between; align-items: baseline;
+    }
+    .phase-time { color: #666; font-weight: 400; font-size: 10px; text-transform: none; letter-spacing: 0; }
+    .phase-desc { font-size: 11px; color: #555; margin-bottom: 8px; font-style: italic; }
+
+    .session-item {
+      display: flex; align-items: stretch; gap: 0;
+      margin-bottom: 4px; background: #222; border-radius: 6px;
+      border: 1px solid transparent; transition: all 0.15s; overflow: hidden;
+    }
+    .session-item:hover { background: #282828; border-color: #3a3a3a; }
+    .session-item.selected { border-color: #c33; background: #2a1a1a; }
+
+    .session-item .chunk-color { width: 4px; flex-shrink: 0; }
+    .session-item .chunk-body {
+      flex: 1; padding: 8px 10px; cursor: pointer; min-width: 0;
+    }
+    .session-item .chunk-label { font-size: 12px; font-weight: 600; color: #ddd; }
+    .session-item .chunk-sublabel { font-size: 11px; color: #888; margin-top: 1px; }
+    .session-item .chunk-meta { font-size: 10px; color: #555; margin-top: 2px; }
+    .session-item .review-tag {
+      display: inline-block; background: #3a2a00; color: #ffaa33; font-size: 9px;
+      padding: 1px 5px; border-radius: 3px; font-weight: 600; margin-left: 6px;
+    }
+
+    .session-item .chunk-controls {
+      display: flex; flex-direction: column; align-items: stretch;
+      border-left: 1px solid #333; flex-shrink: 0;
+    }
+
+    /* Click toggle button */
+    .btn-click {
+      background: #2a2a2a; border: none; color: #888;
+      padding: 0 14px; cursor: pointer; font-size: 16px;
+      transition: all 0.15s; flex: 1; display: flex; align-items: center; justify-content: center;
+      border-bottom: 1px solid #333; min-width: 44px;
+    }
+    .btn-click:hover { background: #333; color: #ccc; }
+    .btn-click.playing { background: #c33; color: #fff; }
+
+    /* Rating buttons row */
+    .rate-row {
+      display: flex; flex-shrink: 0;
+    }
+    .rate-btn {
+      flex: 1; padding: 6px 0; font-size: 9px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      cursor: pointer; border: none; color: #666; background: #2a2a2a;
+      transition: all 0.15s; text-align: center;
+    }
+    .rate-btn:hover { color: #fff; }
+    .rate-btn.r1 { border-right: 1px solid #333; }
+    .rate-btn.r1:hover { background: #ff4444; color: #fff; }
+    .rate-btn.r3 { border-right: 1px solid #333; }
+    .rate-btn.r3:hover { background: #ff8800; color: #fff; }
+    .rate-btn.r5:hover { background: #44cc44; color: #fff; }
+    .rate-btn.chosen { opacity: 1; pointer-events: none; }
+    .rate-btn.chosen.r1 { background: #ff4444; color: #fff; }
+    .rate-btn.chosen.r3 { background: #ff8800; color: #fff; }
+    .rate-btn.chosen.r5 { background: #44cc44; color: #fff; }
+    .rate-btn.dimmed { opacity: 0.25; pointer-events: none; }
+
+    /* --- Chunks tab --- */
+    .chunk-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; margin-bottom: 4px;
+      background: #222; border-radius: 6px; cursor: pointer;
+      border: 1px solid transparent; transition: all 0.15s;
+    }
+    .chunk-row:hover { background: #282828; border-color: #3a3a3a; }
+    .chunk-row.selected { border-color: #c33; background: #2a1a1a; }
+    .chunk-row .chunk-color { width: 4px; height: 40px; border-radius: 2px; flex-shrink: 0; }
+    .chunk-row .chunk-info { flex: 1; min-width: 0; }
+    .chunk-row .chunk-label { font-size: 12px; font-weight: 600; color: #ddd; }
+    .chunk-row .chunk-sublabel { font-size: 11px; color: #888; }
+    .chunk-row .chunk-techniques { font-size: 10px; color: #555; }
+
+    .diff-bar-outer { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .diff-bar-container { width: 50px; height: 5px; background: #333; border-radius: 3px; overflow: hidden; }
+    .diff-bar-fill { height: 100%; border-radius: 3px; }
+    .diff-label { font-size: 10px; color: #666; min-width: 20px; text-align: right; }
+
+    .btn-click-small {
+      background: #2a2a2a; border: 1px solid #333; color: #888;
+      border-radius: 4px; padding: 4px 10px; font-size: 14px;
+      cursor: pointer; transition: all 0.15s; flex-shrink: 0;
+    }
+    .btn-click-small:hover { background: #333; color: #ccc; }
+    .btn-click-small.playing { background: #c33; border-color: #c33; color: #fff; }
+
+    /* --- Progress tab --- */
+    .progress-summary {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+      margin-bottom: 16px;
+    }
+    .stat-card { background: #222; border-radius: 6px; padding: 12px; text-align: center; }
+    .stat-card .stat-value { font-size: 24px; font-weight: 700; color: #ff5555; }
+    .stat-card .stat-label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .overall-bar { background: #222; border-radius: 6px; padding: 12px; margin-bottom: 16px; }
+    .overall-bar .bar-label { font-size: 11px; color: #888; margin-bottom: 6px; }
+    .overall-bar .bar-track { width: 100%; height: 8px; background: #333; border-radius: 4px; overflow: hidden; }
+    .overall-bar .bar-fill {
+      height: 100%; border-radius: 4px; background: linear-gradient(90deg, #c33, #ff5555);
+      transition: width 0.3s;
+    }
+
+    .progress-chunk {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px; margin-bottom: 3px;
+      background: #222; border-radius: 4px;
+    }
+    .progress-chunk .p-id { font-size: 11px; color: #aaa; min-width: 65px; }
+    .progress-chunk .p-bars { font-size: 10px; color: #555; min-width: 55px; }
+    .progress-chunk .p-bar-container { flex: 1; height: 5px; background: #333; border-radius: 3px; overflow: hidden; }
+    .progress-chunk .p-bar-fill { height: 100%; border-radius: 3px; background: #c33; transition: width 0.3s; }
+    .progress-chunk .p-level { font-size: 10px; color: #666; min-width: 70px; text-align: right; }
+
+    .loading {
+      display: flex; align-items: center; justify-content: center;
+      height: 200px; font-size: 14px; color: #444;
+    }
+
+    /* --- Generate tab --- */
+    .gen-form { display: flex; flex-direction: column; gap: 10px; }
+    .gen-field label {
+      display: block; font-size: 10px; font-weight: 600; color: #888;
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px;
+    }
+    .gen-field select, .gen-field input[type="number"] {
+      width: 100%; background: #222; color: #ddd; border: 1px solid #444;
+      border-radius: 4px; padding: 6px 8px; font-size: 13px; font-family: inherit;
+    }
+    .gen-field select:focus, .gen-field input:focus { outline: none; border-color: #ff5555; }
+    .gen-tempo-row { display: flex; align-items: center; gap: 8px; }
+    .gen-tempo-row input[type="range"] { flex: 1; accent-color: #c33; }
+    .gen-tempo-row .tempo-val { font-size: 13px; color: #ccc; min-width: 48px; text-align: right; }
+    .gen-btn {
+      background: #c33; color: #fff; border: none; border-radius: 6px;
+      padding: 10px 0; font-size: 13px; font-weight: 700; cursor: pointer;
+      transition: background 0.15s; margin-top: 4px;
+    }
+    .gen-btn:hover { background: #d44; }
+    .gen-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .gen-status { font-size: 11px; color: #888; text-align: center; min-height: 16px; }
+    .gen-empty {
+      text-align: center; color: #555; padding: 20px 16px;
+      font-size: 13px; line-height: 1.6;
+    }
+    .gen-empty strong { color: #aaa; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #444; }
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span class="title">PRACTICE</span>
+  <span class="file-info" id="fileInfo">Loading...</span>
+  <div class="spacer"></div>
+  <span class="now-playing" id="nowPlaying"></span>
+  <div class="speed-control">
+    <label>Speed:</label>
+    <input type="range" id="speedSlider" min="25" max="100" value="100" step="5">
+    <span class="speed-val" id="speedVal">100%</span>
+  </div>
+  <button id="metronomeBtn" title="Toggle metronome (M)">Met</button>
+  <button id="playBtn" disabled title="Play/pause full piece (Space)">Play</button>
+  <button id="stopBtn" disabled title="Stop playback (Esc)">Stop</button>
+</div>
+
+<div class="main">
+  <div class="left-panel">
+    <div id="alphaTab"></div>
+  </div>
+  <div class="right-panel">
+    <div class="panel-tabs">
+      <div class="panel-tab active" data-tab="session">Session</div>
+      <div class="panel-tab" data-tab="chunks">Chunks</div>
+      <div class="panel-tab" data-tab="progress">Progress</div>
+      <div class="panel-tab" data-tab="generate">Generate</div>
+    </div>
+    <div class="panel-content">
+      <div class="tab-pane active" id="pane-session">
+        <div class="loading">Loading session...</div>
+      </div>
+      <div class="tab-pane" id="pane-chunks">
+        <div class="loading">Loading chunks...</div>
+      </div>
+      <div class="tab-pane" id="pane-progress">
+        <div class="loading">Loading progress...</div>
+      </div>
+      <div class="tab-pane" id="pane-generate">
+        <div class="loading">Loading options...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  const script = document.createElement('script');
+  script.src = '/node_modules/@coderline/alphatab/dist/alphaTab.js';
+  script.onload = () => boot();
+  document.head.appendChild(script);
+
+  const CHUNK_COLORS = [
+    '#ff5555', '#55aaff', '#55ff88', '#ffaa33', '#cc66ff',
+    '#ff77cc', '#77ddff', '#ffdd55', '#88ff88', '#ff8855',
+    '#aa88ff', '#55ffdd', '#ff5588', '#88aaff', '#ddff55',
+  ];
+
+  let atApi = null;
+  let boundsLookup = null;
+  let barBoundsMap = {};  // barIndex -> { x, y, w, h } from boundsLookup
+  let fileInfo = null;
+  let analyzeData = null;
+  let sessionData = null;
+  let progressData = null;
+  let selectedChunkId = null;
+  let playingChunkId = null;  // chunk currently being played via alphaTab
+  let metronomeOn = false;
+
+  let fileLoaded = false;
+
+  async function boot() {
+    // Check if a file is loaded
+    const infoResp = await fetch('/api/file-info').then(r => r.json());
+
+    initAlphaTab();
+    initTabs();
+    initPlayback();
+    await initGenerateTab();
+
+    if (infoResp.error) {
+      // No file loaded -- show Generate tab by default
+      fileLoaded = false;
+      document.getElementById('fileInfo').textContent = 'No file loaded';
+      document.getElementById('pane-session').innerHTML = '<div class="gen-empty">Generate an exercise or start with a file to begin.</div>';
+      document.getElementById('pane-chunks').innerHTML = '<div class="gen-empty">No file loaded.</div>';
+      document.getElementById('pane-progress').innerHTML = '<div class="gen-empty">No file loaded.</div>';
+      switchToTab('generate');
+    } else {
+      // File loaded -- normal flow
+      fileLoaded = true;
+      fileInfo = infoResp;
+      const [analyzeResp, sessionResp, progressResp] = await Promise.all([
+        fetch('/api/analyze').then(r => r.json()),
+        fetch('/api/session').then(r => r.json()),
+        fetch('/api/progress').then(r => r.json()),
+      ]);
+      analyzeData = analyzeResp;
+      sessionData = sessionResp;
+      progressData = progressResp;
+
+      updateFileInfoBar();
+      renderSessionTab();
+      renderChunksTab();
+      renderProgressTab();
+      loadAlphaTabFile();
+    }
+  }
+
+  function updateFileInfoBar() {
+    document.getElementById('fileInfo').innerHTML = `
+      <strong>${fileInfo.title}</strong> &middot;
+      ${fileInfo.tempo} BPM &middot;
+      ${fileInfo.bars} bars &middot;
+      ${fileInfo.tracks[fileInfo.activeTrack]?.name || 'Track ' + fileInfo.activeTrack}
+      ${fileInfo.tuning ? ' &middot; ' + fileInfo.tuning.name : ''}
+    `;
+  }
+
+  function loadAlphaTabFile() {
+    fetch('/api/file')
+      .then(r => r.arrayBuffer())
+      .then(buf => atApi.load(new Uint8Array(buf)));
+  }
+
+  function switchToTab(tabName) {
+    document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    const tab = document.querySelector(`.panel-tab[data-tab="${tabName}"]`);
+    if (tab) tab.classList.add('active');
+    const pane = document.getElementById('pane-' + tabName);
+    if (pane) pane.classList.add('active');
+  }
+
+  // --- alphaTab ---
+  function initAlphaTab() {
+    const container = document.getElementById('alphaTab');
+    const settings = new alphaTab.Settings();
+    settings.core.fontDirectory = '/node_modules/@coderline/alphatab/dist/font/';
+    settings.player.enablePlayer = true;
+    settings.player.enableCursor = true;
+    settings.player.enableUserInteraction = true;
+    settings.player.scrollMode = alphaTab.ScrollMode.Continuous;
+    settings.player.scrollSpeed = 300;
+    settings.player.scrollElement = container;
+    settings.player.soundFont = '/node_modules/@coderline/alphatab/dist/soundfont/sonivox.sf2';
+    settings.display.layoutMode = alphaTab.LayoutMode.Page;
+
+    const res = settings.display.resources;
+    res.mainGlyphColor = new alphaTab.model.Color(255, 255, 255, 255);
+    res.staffLineColor = new alphaTab.model.Color(180, 180, 180, 255);
+    res.barSeparatorColor = new alphaTab.model.Color(100, 100, 100, 255);
+    res.barNumberColor = new alphaTab.model.Color(180, 180, 180, 255);
+    res.secondaryGlyphColor = new alphaTab.model.Color(180, 180, 180, 200);
+    res.scoreInfoColor = new alphaTab.model.Color(255, 255, 255, 255);
+
+    atApi = new alphaTab.AlphaTabApi(container, settings);
+
+    atApi.scoreLoaded.on((score) => {
+      for (const track of score.tracks) {
+        for (const staff of track.staves) {
+          staff.showTablature = true;
+          staff.showStandardNotation = false;
+        }
+      }
+      const trackIdx = fileInfo ? fileInfo.activeTrack : 0;
+      const activeTrack = score.tracks[trackIdx] || score.tracks[0];
+      atApi.renderTracks([activeTrack]);
+    });
+
+    atApi.renderFinished.on(() => {
+      boundsLookup = atApi.renderer.boundsLookup;
+      buildBarBoundsMap();
+      renderChunkOverlays();
+    });
+
+    // Keep Play button and section state in sync with player
+    atApi.playerStateChanged.on((e) => {
+      const playBtn = document.getElementById('playBtn');
+      if (e.state === alphaTab.synth.PlayerState.Playing) {
+        playBtn.textContent = 'Pause';
+      } else {
+        playBtn.textContent = 'Play';
+        // If player stopped (not paused) and a section was playing, clear it
+        if (e.stopped && playingChunkId) {
+          playingChunkId = null;
+          document.querySelectorAll('.btn-click.playing, .btn-click-small.playing').forEach(el => {
+            el.classList.remove('playing');
+          });
+          document.getElementById('nowPlaying').textContent = '';
+        }
+      }
+    });
+
+    // Enable play/stop once player is ready (soundfont loaded)
+    atApi.playerReady.on(() => {
+      document.getElementById('playBtn').disabled = false;
+      document.getElementById('stopBtn').disabled = false;
+    });
+  }
+
+  // --- Build flat bar-bounds map from boundsLookup ---
+  function buildBarBoundsMap() {
+    barBoundsMap = {};
+    if (!boundsLookup) return;
+
+    // alphaTab BoundsLookup structure:
+    //   .staffSystems[] -> .bars[] (MasterBarBounds, with .index and .visualBounds)
+    //     each MasterBarBounds has .bars[] (individual staff BarBounds)
+    // We use the MasterBarBounds level for chunk highlighting.
+
+    if (boundsLookup.staffSystems) {
+      for (const system of boundsLookup.staffSystems) {
+        for (const masterBar of system.bars) {
+          const idx = masterBar.index;
+          const b = masterBar.visualBounds;
+          if (typeof idx === 'number' && b) {
+            barBoundsMap[idx] = { x: b.x, y: b.y, w: b.w, h: b.h };
+          }
+        }
+      }
+    }
+    console.log(`[Practice] barBoundsMap: ${Object.keys(barBoundsMap).length} bars`);
+  }
+
+  // --- Chunk overlays ---
+  function renderChunkOverlays() {
+    document.querySelectorAll('.chunk-overlay').forEach(el => el.remove());
+    if (!analyzeData || Object.keys(barBoundsMap).length === 0) return;
+
+    const surface = document.querySelector('#alphaTab .at-surface');
+    if (!surface) return;
+
+    for (let i = 0; i < analyzeData.chunks.length; i++) {
+      const chunk = analyzeData.chunks[i];
+      const color = CHUNK_COLORS[i % CHUNK_COLORS.length];
+
+      for (const barIdx of chunk.barIndices) {
+        const b = barBoundsMap[barIdx];
+        if (!b) continue;
+        const ov = document.createElement('div');
+        ov.className = 'chunk-overlay' + (chunk.id === selectedChunkId ? ' active' : '');
+        ov.dataset.chunkId = chunk.id;
+        ov.style.cssText = `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;background:${color}`;
+        surface.appendChild(ov);
+      }
+    }
+  }
+
+  function highlightChunk(chunkId) {
+    // Stop section playback when changing selection
+    if (playingChunkId && playingChunkId !== chunkId) {
+      stopSectionPlayback();
+    }
+
+    // Toggle: clicking the same chunk deselects
+    if (selectedChunkId === chunkId) {
+      selectedChunkId = null;
+    } else {
+      selectedChunkId = chunkId;
+    }
+
+    document.querySelectorAll('.chunk-overlay').forEach(el => {
+      el.classList.toggle('active', el.dataset.chunkId === selectedChunkId);
+    });
+    document.querySelectorAll('.session-item, .chunk-row').forEach(el => {
+      el.classList.toggle('selected', el.dataset.chunkId === selectedChunkId);
+    });
+
+    // Scroll to chunk and move alphaTab cursor to that bar
+    if (!selectedChunkId) return;
+    const chunk = analyzeData.chunks.find(c => c.id === selectedChunkId);
+    if (!chunk) return;
+
+    const firstBarIdx = chunk.barIndices[0];
+
+    // Move alphaTab's cursor (the red bar highlight) to the first bar of this chunk
+    if (atApi && atApi.score && atApi.score.masterBars[firstBarIdx]) {
+      const tick = atApi.score.masterBars[firstBarIdx].start;
+      atApi.tickPosition = tick;
+    }
+
+    // Also scroll the container
+    const b = barBoundsMap[firstBarIdx];
+    if (b) {
+      document.getElementById('alphaTab').scrollTo({
+        top: Math.max(0, b.y - 60),
+        behavior: 'smooth'
+      });
+    }
+  }
+
+  // --- Section playback via alphaTab ---
+  function stopSectionPlayback() {
+    if (!atApi) return;
+    atApi.stop();
+    atApi.playbackRange = null;
+    atApi.isLooping = false;
+    playingChunkId = null;
+    document.querySelectorAll('.btn-click.playing, .btn-click-small.playing').forEach(el => {
+      el.classList.remove('playing');
+    });
+    document.getElementById('nowPlaying').textContent = '';
+  }
+
+  function toggleSectionPlay(chunkId, buttonEl) {
+    if (!atApi || !atApi.score) return;
+
+    // If already playing this chunk, stop
+    if (playingChunkId === chunkId) {
+      stopSectionPlayback();
+      return;
+    }
+
+    // Stop current without clearing range (we'll set new one)
+    if (atApi.playerState === alphaTab.synth.PlayerState.Playing) {
+      atApi.stop();
+    }
+    // Clear UI state from previous section
+    playingChunkId = null;
+    document.querySelectorAll('.btn-click.playing, .btn-click-small.playing').forEach(el => {
+      el.classList.remove('playing');
+    });
+
+    const chunk = analyzeData.chunks.find(c => c.id === chunkId);
+    if (!chunk) return;
+
+    const startBarIdx = chunk.barIndices[0];
+    const endBarIdx = chunk.barIndices[chunk.barIndices.length - 1];
+    const startTick = atApi.score.masterBars[startBarIdx].start;
+    // End tick: exact end of the last bar (exclusive, minus 1 to avoid bleeding into next bar)
+    const endMb = atApi.score.masterBars[endBarIdx];
+    const endTick = endMb.start + endMb.calculateDuration() - 1;
+
+    // Configure looping section playback
+    atApi.isLooping = true;
+    atApi.playbackRange = { startTick, endTick };
+    atApi.countInVolume = metronomeOn ? 1.0 : 0;
+    atApi.tickPosition = startTick;
+    atApi.play();
+
+    playingChunkId = chunkId;
+    buttonEl.classList.add('playing');
+    document.getElementById('nowPlaying').textContent = chunkLabel(chunk);
+  }
+
+  function toggleMetronome() {
+    metronomeOn = !metronomeOn;
+    if (atApi) {
+      atApi.metronomeVolume = metronomeOn ? 1.0 : 0;
+      atApi.countInVolume = metronomeOn ? 1.0 : 0;
+    }
+    const btn = document.getElementById('metronomeBtn');
+    if (btn) {
+      btn.classList.toggle('active', metronomeOn);
+    }
+  }
+
+  // --- Rating ---
+  async function rateChunk(chunkId, rating, rowEl) {
+    const resp = await fetch('/api/rate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ratings: { [chunkId]: rating } }),
+    });
+    const result = await resp.json();
+    if (!result.ok) return;
+
+    progressData.state = result.state;
+
+    // Update buttons in this row
+    rowEl.querySelectorAll('.rate-btn').forEach(btn => {
+      const r = parseInt(btn.dataset.rating);
+      if (r === rating) {
+        btn.classList.add('chosen');
+        btn.classList.remove('dimmed');
+      } else {
+        btn.classList.add('dimmed');
+        btn.classList.remove('chosen');
+      }
+    });
+
+    renderProgressTab();
+  }
+
+  // --- Chunk display helpers ---
+  function chunkLabel(chunk) {
+    // Use section text if available, otherwise bar range
+    if (chunk.label && !chunk.label.startsWith('Bar')) return chunk.label;
+    return chunk.barRange[0] === chunk.barRange[1]
+      ? `Bar ${chunk.barRange[0]}`
+      : `Bars ${chunk.barRange[0]}-${chunk.barRange[1]}`;
+  }
+
+  function chunkSubLabel(chunk) {
+    const barStr = chunk.barRange[0] === chunk.barRange[1]
+      ? `Bar ${chunk.barRange[0]}`
+      : `Bars ${chunk.barRange[0]}-${chunk.barRange[1]}`;
+    const techStr = chunk.techniques.length > 0 ? chunk.techniques.join(', ') : '';
+    return barStr + (techStr ? ' -- ' + techStr : '');
+  }
+
+  function diffColor(diff) {
+    if (diff >= 80) return '#ff4444';
+    if (diff >= 60) return '#ff8800';
+    if (diff >= 40) return '#ffcc00';
+    return '#44cc44';
+  }
+
+  function chunkColorByIdx(chunkId) {
+    const idx = analyzeData.chunks.findIndex(c => c.id === chunkId);
+    return CHUNK_COLORS[idx >= 0 ? idx % CHUNK_COLORS.length : 0];
+  }
+
+  // --- Session tab ---
+  function renderSessionTab() {
+    const pane = document.getElementById('pane-session');
+    const session = sessionData.session;
+    let html = '';
+
+    // Phase 1: Isolation
+    html += `<div class="phase">
+      <div class="phase-header">
+        <span>Phase 1: Isolation</span>
+        <span class="phase-time">~${session.phaseTime.isolation} min</span>
+      </div>
+      <div class="phase-desc">Slow tempos, clean execution. 30s rest between chunks.</div>`;
+
+    for (const item of session.isolation) {
+      const chunk = item.chunk;
+      const color = chunkColorByIdx(chunk.id);
+      const review = item.isReview ? '<span class="review-tag">REVIEW</span>' : '';
+
+      html += `
+        <div class="session-item" data-chunk-id="${chunk.id}">
+          <div class="chunk-color" style="background:${color}"></div>
+          <div class="chunk-body">
+            <div class="chunk-label">${chunkLabel(chunk)}${review}</div>
+            <div class="chunk-sublabel">${chunkSubLabel(chunk)}</div>
+            <div class="chunk-meta">${item.level} &middot; ${item.bpm} BPM (${Math.round(item.tempoPct * 100)}%) &middot; ${item.reps} reps</div>
+          </div>
+          <div class="chunk-controls">
+            <button class="btn-click" data-chunk-id="${chunk.id}" title="Toggle click track">&#9654;</button>
+            <div class="rate-row" data-chunk-id="${chunk.id}">
+              <button class="rate-btn r1" data-rating="1" title="Struggled">Hard</button>
+              <button class="rate-btn r3" data-rating="3" title="Okay">OK</button>
+              <button class="rate-btn r5" data-rating="5" title="Clean">Clean</button>
+            </div>
+          </div>
+        </div>`;
+    }
+    html += `</div>`;
+
+    // Phase 2: Context
+    if (session.context.length > 0) {
+      html += `<div class="phase">
+        <div class="phase-header">
+          <span>Phase 2: Context</span>
+          <span class="phase-time">~${session.phaseTime.context} min</span>
+        </div>
+        <div class="phase-desc">Connect adjacent chunks. Focus on transitions.</div>`;
+
+      for (const pair of session.context) {
+        const ids = pair.chunks.map(c => chunkLabel(c)).join(' + ');
+        html += `
+          <div class="session-item" data-chunk-id="${pair.chunks[0].id}">
+            <div class="chunk-color" style="background:#666"></div>
+            <div class="chunk-body">
+              <div class="chunk-label">${ids}</div>
+              <div class="chunk-sublabel">Bars ${pair.barRange[0]}-${pair.barRange[1]}</div>
+              <div class="chunk-meta">${pair.bpm} BPM (${Math.round(pair.tempoPct * 100)}%)</div>
+            </div>
+          </div>`;
+      }
+      html += `</div>`;
+    }
+
+    // Phase 3: Interleaving
+    if (session.interleaving.chunks.length > 0) {
+      const labels = session.interleaving.chunks.map(c => chunkLabel(c)).join(', ');
+      html += `<div class="phase">
+        <div class="phase-header">
+          <span>Phase 3: Interleaving</span>
+          <span class="phase-time">~${session.phaseTime.interleaving} min</span>
+        </div>
+        <div class="phase-desc">Random order. Forces recall.</div>
+        <div class="session-item">
+          <div class="chunk-color" style="background:#cc66ff"></div>
+          <div class="chunk-body">
+            <div class="chunk-label">Shuffle</div>
+            <div class="chunk-sublabel">${labels}</div>
+            <div class="chunk-meta">${session.interleaving.bpm} BPM (${Math.round(session.interleaving.tempoPct * 100)}%) &middot; 2 reps each</div>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    // Phase 4: Run-through
+    html += `<div class="phase">
+      <div class="phase-header">
+        <span>Phase 4: Run-through</span>
+        <span class="phase-time">~${session.phaseTime.runthrough} min</span>
+      </div>
+      <div class="phase-desc">Full piece. Note problem spots.</div>
+      <div class="session-item">
+        <div class="chunk-color" style="background:#55ff88"></div>
+        <div class="chunk-body">
+          <div class="chunk-label">Full piece</div>
+          <div class="chunk-sublabel">All ${fileInfo.bars} bars</div>
+          <div class="chunk-meta">${session.runthrough.bpm} BPM (${Math.round(session.runthrough.tempoPct * 100)}%)</div>
+        </div>
+      </div>
+    </div>`;
+
+    pane.innerHTML = html;
+    attachSessionListeners(pane);
+  }
+
+  function attachSessionListeners(pane) {
+    pane.querySelectorAll('.session-item[data-chunk-id]').forEach(el => {
+      el.querySelector('.chunk-body')?.addEventListener('click', () => {
+        highlightChunk(el.dataset.chunkId);
+      });
+    });
+
+    pane.querySelectorAll('.btn-click').forEach(btn => {
+      btn.addEventListener('click', () => toggleSectionPlay(btn.dataset.chunkId, btn));
+    });
+
+    pane.querySelectorAll('.rate-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.session-item');
+        const rateRow = btn.closest('.rate-row');
+        rateChunk(rateRow.dataset.chunkId, parseInt(btn.dataset.rating), row);
+      });
+    });
+  }
+
+  // --- Chunks tab ---
+  function renderChunksTab() {
+    const pane = document.getElementById('pane-chunks');
+    let html = '';
+
+    for (let i = 0; i < analyzeData.chunks.length; i++) {
+      const chunk = analyzeData.chunks[i];
+      const color = CHUNK_COLORS[i % CHUNK_COLORS.length];
+      const diff = chunk.difficulty;
+
+      const cs = progressData.state.chunks[chunk.id];
+      const lvl = cs ? cs.masteryLevel : 0;
+      const levelName = progressData.masteryLevels[lvl]?.name || 'New';
+
+      html += `
+        <div class="chunk-row" data-chunk-id="${chunk.id}">
+          <div class="chunk-color" style="background:${color}"></div>
+          <div class="chunk-info">
+            <div class="chunk-label">${chunkLabel(chunk)} <span style="color:#555;font-weight:400;font-size:10px">${levelName}</span></div>
+            <div class="chunk-sublabel">${chunkSubLabel(chunk)}</div>
+          </div>
+          <div class="diff-bar-outer">
+            <div class="diff-bar-container">
+              <div class="diff-bar-fill" style="width:${diff}%;background:${diffColor(diff)}"></div>
+            </div>
+            <div class="diff-label">${diff}</div>
+          </div>
+          <button class="btn-click-small" data-chunk-id="${chunk.id}" title="Toggle click track">&#9654;</button>
+        </div>`;
+    }
+
+    pane.innerHTML = html;
+
+    pane.querySelectorAll('.chunk-row').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-click-small')) return;
+        highlightChunk(el.dataset.chunkId);
+      });
+    });
+
+    pane.querySelectorAll('.btn-click-small').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleSectionPlay(btn.dataset.chunkId, btn);
+      });
+    });
+  }
+
+  // --- Progress tab ---
+  function renderProgressTab() {
+    const pane = document.getElementById('pane-progress');
+    const state = progressData.state;
+    const chunks = analyzeData.chunks;
+    const levels = progressData.masteryLevels;
+
+    const total = chunks.length;
+    const mastered = chunks.filter(c => (state.chunks[c.id]?.masteryLevel || 0) >= 5).length;
+    const learning = chunks.filter(c => {
+      const l = state.chunks[c.id]?.masteryLevel || 0;
+      return l > 0 && l < 5;
+    }).length;
+    const newCount = chunks.filter(c => (state.chunks[c.id]?.masteryLevel || 0) === 0).length;
+    const overallPct = total > 0 ? Math.round((mastered / total) * 100) : 0;
+
+    let html = `
+      <div class="progress-summary">
+        <div class="stat-card"><div class="stat-value">${state.sessionCount}</div><div class="stat-label">Sessions</div></div>
+        <div class="stat-card"><div class="stat-value">${overallPct}%</div><div class="stat-label">Mastered</div></div>
+        <div class="stat-card"><div class="stat-value">${learning}</div><div class="stat-label">Learning</div></div>
+        <div class="stat-card"><div class="stat-value">${newCount}</div><div class="stat-label">New</div></div>
+      </div>
+      <div class="overall-bar">
+        <div class="bar-label">Overall: ${mastered} / ${total} chunks mastered</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${overallPct}%"></div></div>
+      </div>`;
+
+    const now = new Date();
+    for (const chunk of chunks) {
+      const cs = state.chunks[chunk.id];
+      const lvl = cs ? cs.masteryLevel : 0;
+      const level = levels[lvl] || levels[0];
+      const pct = Math.round((lvl / 5) * 100);
+      const barStr = chunk.barRange[0] === chunk.barRange[1]
+        ? `Bar ${chunk.barRange[0]}`
+        : `${chunk.barRange[0]}-${chunk.barRange[1]}`;
+
+      let reviewStr = '';
+      if (cs?.nextReview) {
+        const rd = new Date(cs.nextReview);
+        if (rd <= now) reviewStr = ' (due)';
+        else {
+          const d = Math.ceil((rd - now) / 86400000);
+          reviewStr = ` (${d}d)`;
+        }
+      }
+
+      html += `
+        <div class="progress-chunk">
+          <div class="p-id">${chunkLabel(chunk)}</div>
+          <div class="p-bars">${barStr}</div>
+          <div class="p-bar-container"><div class="p-bar-fill" style="width:${pct}%"></div></div>
+          <div class="p-level">${level.name}${reviewStr}</div>
+        </div>`;
+    }
+
+    pane.innerHTML = html;
+  }
+
+  // --- Tabs ---
+  function initTabs() {
+    document.querySelectorAll('.panel-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('pane-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+  }
+
+  // --- Playback controls ---
+  function initPlayback() {
+    const playBtn = document.getElementById('playBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const speedSlider = document.getElementById('speedSlider');
+    const speedVal = document.getElementById('speedVal');
+
+    playBtn.addEventListener('click', () => {
+      if (!atApi) return;
+      if (atApi.playerState === alphaTab.synth.PlayerState.Playing) {
+        atApi.pause();
+      } else {
+        // Clear section range so Play plays the full piece
+        if (playingChunkId) {
+          stopSectionPlayback();
+        }
+        atApi.playbackRange = null;
+        atApi.isLooping = false;
+        atApi.play();
+      }
+    });
+
+    stopBtn.addEventListener('click', () => {
+      stopSectionPlayback();
+    });
+
+    document.getElementById('metronomeBtn').addEventListener('click', toggleMetronome);
+
+    speedSlider.addEventListener('input', () => {
+      const pct = parseInt(speedSlider.value);
+      speedVal.textContent = pct + '%';
+      if (atApi) atApi.playbackSpeed = pct / 100;
+    });
+
+    // Keyboard: Space to toggle play
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !e.target.closest('input, button, select')) {
+        e.preventDefault();
+        playBtn.click();
+      }
+      // Escape to stop section playback
+      if (e.code === 'Escape') {
+        stopSectionPlayback();
+      }
+      // M to toggle metronome
+      if (e.code === 'KeyM' && !e.target.closest('input, button, select')) {
+        toggleMetronome();
+      }
+    });
+  }
+
+  // --- Generate tab ---
+  async function initGenerateTab() {
+    const pane = document.getElementById('pane-generate');
+
+    let options;
+    try {
+      options = await fetch('/api/generate-options').then(r => r.json());
+    } catch (e) {
+      pane.innerHTML = '<div class="gen-empty">Could not reach exercise generator API.<br>Check your internet connection.</div>';
+      return;
+    }
+
+    if (options.error) {
+      pane.innerHTML = `<div class="gen-empty">API error: ${options.error}</div>`;
+      return;
+    }
+
+    pane.innerHTML = `
+      <div class="gen-form">
+        <div class="gen-field">
+          <label>Root Note</label>
+          <select id="genRoot">${options.roots.map(r => `<option value="${r}"${r === 'E' ? ' selected' : ''}>${r}</option>`).join('')}</select>
+        </div>
+        <div class="gen-field">
+          <label>Scale</label>
+          <select id="genScale">${options.scales.map(s => `<option value="${s}"${s === 'pentatonic_minor' ? ' selected' : ''}>${s.replace(/_/g, ' ')}</option>`).join('')}</select>
+        </div>
+        <div class="gen-field">
+          <label>Pattern</label>
+          <select id="genPattern">${options.patterns.map(p => `<option value="${p}"${p === 'ascending' ? ' selected' : ''}>${p.replace(/_/g, ' ')}</option>`).join('')}</select>
+        </div>
+        <div class="gen-field">
+          <label>Tuning</label>
+          <select id="genTuning">${options.tunings.map(t => `<option value="${t}"${t === 'standard' ? ' selected' : ''}>${t.replace(/_/g, ' ')}</option>`).join('')}</select>
+        </div>
+        <div class="gen-field">
+          <label>Bars</label>
+          <input type="number" id="genBars" value="4" min="1" max="32" step="1">
+        </div>
+        <div class="gen-field">
+          <label>Tempo</label>
+          <div class="gen-tempo-row">
+            <input type="range" id="genTempo" min="40" max="240" value="120" step="5">
+            <span class="tempo-val" id="genTempoVal">120</span>
+          </div>
+        </div>
+        <button class="gen-btn" id="genBtn">Generate & Load</button>
+        <div class="gen-status" id="genStatus"></div>
+      </div>
+    `;
+
+    document.getElementById('genTempo').addEventListener('input', (e) => {
+      document.getElementById('genTempoVal').textContent = e.target.value;
+    });
+
+    document.getElementById('genBtn').addEventListener('click', generateAndLoad);
+  }
+
+  async function generateAndLoad() {
+    const btn = document.getElementById('genBtn');
+    const status = document.getElementById('genStatus');
+    btn.disabled = true;
+    status.textContent = 'Generating exercise...';
+
+    // Stop any current playback
+    stopSectionPlayback();
+
+    const params = {
+      root: document.getElementById('genRoot').value,
+      scale: document.getElementById('genScale').value,
+      pattern: document.getElementById('genPattern').value,
+      tuning: document.getElementById('genTuning').value,
+      bars: parseInt(document.getElementById('genBars').value) || 4,
+      tempo: parseInt(document.getElementById('genTempo').value) || 120,
+    };
+
+    try {
+      const resp = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      const data = await resp.json();
+
+      if (!data.ok) {
+        status.textContent = 'Error: ' + (data.error || 'Unknown error');
+        btn.disabled = false;
+        return;
+      }
+
+      // Update all state from the combined response
+      fileInfo = data.fileInfo;
+      analyzeData = data.analyze;
+      sessionData = data.session;
+      progressData = data.progress;
+      fileLoaded = true;
+      selectedChunkId = null;
+      playingChunkId = null;
+
+      // Update UI
+      updateFileInfoBar();
+      renderSessionTab();
+      renderChunksTab();
+      renderProgressTab();
+
+      // Reload alphaTab with new file
+      loadAlphaTabFile();
+
+      status.textContent = `Loaded: ${data.filename}`;
+      switchToTab('session');
+    } catch (e) {
+      status.textContent = 'Error: ' + e.message;
+    }
+
+    btn.disabled = false;
+  }
+</script>
+</body>
+</html>

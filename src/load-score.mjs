@@ -10,3 +10,9 @@ export async function loadScore(filePath) {
   );
   return { score, settings };
 }
+
+export function loadScoreFromBuffer(uint8Array) {
+  const settings = new alphaTab.Settings();
+  const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(uint8Array, settings);
+  return { score, settings };
+}
