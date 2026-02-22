@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Generate scrolling guitar tab overlay videos from Guitar Pro files",
   "scripts": {
-    "start": "node src/index.mjs"
+    "start": "node src/index.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@coderline/alphaskia": "^3.4.135",
@@ -12,5 +13,8 @@
     "@coderline/alphatab": "^1.8.1",
     "@napi-rs/canvas": "^0.1.94",
     "sharp": "^0.33.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
   }
 }
