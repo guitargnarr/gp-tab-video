@@ -27,8 +27,8 @@
 
     .speed-control { display: flex; align-items: center; gap: 6px; }
     .speed-control label { font-size: 11px; color: #888; }
-    .speed-control input[type="range"] { width: 80px; accent-color: #c33; height: 3px; }
-    .speed-control .speed-val { font-size: 11px; color: #ccc; min-width: 32px; }
+    .speed-control input[type="range"] { width: 120px; accent-color: #c33; height: 3px; }
+    .speed-control .speed-val { font-size: 11px; color: #ccc; min-width: 40px; }
 
     .now-playing {
       font-size: 11px; color: #ff5555; max-width: 180px;
@@ -261,7 +261,7 @@
   <span class="now-playing" id="nowPlaying"></span>
   <div class="speed-control">
     <label>Speed:</label>
-    <input type="range" id="speedSlider" min="25" max="100" value="100" step="5">
+    <input type="range" id="speedSlider" min="25" max="300" value="100" step="5">
     <span class="speed-val" id="speedVal">100%</span>
   </div>
   <button id="metronomeBtn" title="Toggle metronome (M)">Met</button>
