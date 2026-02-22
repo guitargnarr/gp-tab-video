@@ -12,14 +12,30 @@ const FFMPEG = '/opt/homebrew/bin/ffmpeg';
  * @param {string} platformOpts.videoBitrate - e.g. '8M', '12M', '45M'
  * @param {string} platformOpts.audioBitrate - e.g. '256k', '384k'
  * @param {number} platformOpts.audioSampleRate - e.g. 48000
+ * @param {string} [audioFile] - optional audio file to mux into the output
  */
-export function createEncoder(outputPath, width, height, fps, transparent = true, platformOpts = {}) {
+export function createEncoder(outputPath, width, height, fps, transparent = true, platformOpts = {}, audioFile = null) {
   // H.264 yuv420p requires even dimensions
   const w = width % 2 === 0 ? width : width + 1;
   const h = height % 2 === 0 ? height : height + 1;
 
   // Use pad filter to handle odd->even dimension adjustment
   const needsPad = w !== width || h !== height;
+
+  // Audio args (when audioFile is provided)
+  const audioInput = audioFile ? ['-i', audioFile] : [];
+  function audioCodecArgs(format) {
+    if (!audioFile) return [];
+    if (format === 'prores') return ['-c:a', 'pcm_s24le', '-shortest'];
+    if (format === 'webm') return ['-c:a', 'libopus', '-b:a', '256k', '-shortest'];
+    // H.264/MP4
+    return [
+      '-c:a', 'aac',
+      '-b:a', platformOpts.audioBitrate || '256k',
+      '-ar', String(platformOpts.audioSampleRate || 48000),
+      '-shortest',
+    ];
+  }
 
   let args;
 
@@ -31,11 +47,13 @@ export function createEncoder(outputPath, width, height, fps, transparent = true
       '-video_size', `${width}x${height}`,
       '-framerate', `${fps}`,
       '-i', 'pipe:0',
+      ...audioInput,
       ...(needsPad ? ['-vf', `pad=${w}:${h}:0:0:black@0`] : []),
       '-c:v', 'prores_ks',
       '-profile:v', '4444',
       '-pix_fmt', 'yuva444p10le',
       '-vendor', 'apl0',
+      ...audioCodecArgs('prores'),
       outputPath,
     ];
   } else if (transparent && outputPath.endsWith('.webm')) {
@@ -46,9 +64,11 @@ export function createEncoder(outputPath, width, height, fps, transparent = true
       '-video_size', `${width}x${height}`,
       '-framerate', `${fps}`,
       '-i', 'pipe:0',
+      ...audioInput,
       '-c:v', 'libvpx-vp9',
       '-pix_fmt', 'yuva420p',
       '-b:v', platformOpts.videoBitrate || '2M',
+      ...audioCodecArgs('webm'),
       outputPath,
     ];
   } else {
@@ -61,6 +81,7 @@ export function createEncoder(outputPath, width, height, fps, transparent = true
       '-video_size', `${width}x${height}`,
       '-framerate', `${fps}`,
       '-i', 'pipe:0',
+      ...audioInput,
       '-vf', `pad=${w}:${h}:0:0:black`,
       '-c:v', 'libx264',
       '-pix_fmt', 'yuv420p',
@@ -69,6 +90,7 @@ export function createEncoder(outputPath, width, height, fps, transparent = true
       ...(useBitrate
         ? ['-b:v', platformOpts.videoBitrate, '-maxrate', platformOpts.videoBitrate, '-bufsize', platformOpts.videoBitrate]
         : ['-crf', '18']),
+      ...audioCodecArgs('mp4'),
       outputPath,
     ];
   }

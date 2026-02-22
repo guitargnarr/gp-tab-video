@@ -141,6 +141,17 @@ ffmpeg -i ocean_bg.mp4 -ss 125.5 -t 15 -i tab_overlay.mov \
 ```
 The composite-reel pipeline handles background rendering, tab overlay generation, alpha compositing, color grading, and platform-spec encoding in one pass. Supports `--bg neon-guitar` (built-in Canvas 2D animation) or external video via ffmpeg.
 
+### Audio Sync
+Mux a Logic Pro WAV bounce (or any audio file) into the video output with `--audio`:
+```bash
+# Standalone tab with audio
+node src/index.mjs song.gp 0 --audio mix.wav --platform youtube
+
+# Composite reel -- audio auto-trimmed to match start-bar/duration window
+node src/composite-reel.mjs song.gp --start-bar 69 --duration 15 --audio mix.wav
+```
+Assumes the audio starts at bar 1 beat 1 at the same BPM as the GP file (standard Logic Pro bounce workflow). For composite reels, ffmpeg seeks directly to the start bar offset -- no full-file decode. Supports WAV, MP3, FLAC, M4A, and any format ffmpeg can read.
+
 ### Video Encoding
 - H.264 for .mp4 (standalone or composite)
 - ProRes 4444 for .mov (transparent alpha channel)
@@ -195,6 +206,10 @@ node src/index.mjs song.gp 0 --width 3840 --fps 60 --scale 1.3
 # Custom cursor
 node src/index.mjs song.gp 0 --cursor-color cyan --cursor-width 4
 
+# Audio from Logic Pro bounce
+node src/index.mjs song.gp 0 --audio mix.wav --platform youtube
+node src/index.mjs song.gp 0 --video playthrough.mp4 --audio mix.wav  # replaces footage audio
+
 # Kitchen sink: playthrough style, YouTube preset, composite over footage
 node src/index.mjs song.gp 0 --style playthrough --platform youtube --video playthrough.mp4
 ```
@@ -222,6 +237,10 @@ Style:
   --style NAME      Style preset: default, clean, playthrough, minimal
   --hide LIST       Hide notation elements (comma-separated)
   --show LIST       Show ONLY these elements (hides everything else)
+
+Audio:
+  --audio FILE      Audio file (WAV/MP3/FLAC) to mux into the output
+                    With --video: replaces footage audio with this file
 
 Platform:
   --platform NAME   Platform preset (sets resolution, bitrate, safe zones)
@@ -304,7 +323,7 @@ Completed features are checked. Remaining work toward the full automated playthr
 - [x] Batch rendering (multiple songs, multiple platforms in one run)
 - [x] Composite reel pipeline (background video/animation + tab overlay)
 - [ ] AE template automation (ExtendScript + aerender pipeline)
-- [ ] Audio sync from Logic Pro export (WAV alignment with GP file BPM)
+- [x] Audio sync from Logic Pro export (WAV alignment with GP file BPM)
 
 ## Architecture
 
@@ -329,7 +348,11 @@ generate-frames.mjs ----- raw pixel crop from strip + cursor alpha blend
   |                        ~600 frames/sec throughput
   v
 encode-video.mjs -------- ffmpeg stdin pipe (raw RGBA -> ProRes 4444 / H.264)
+  |                        + optional audio file muxing (--audio)
   |                        platform-aware bitrate, audio codec, sample rate
+  v
+probe-audio.mjs --------- ffprobe wrapper for audio validation
+  |                        duration, sample rate, channels, codec detection
   v
 index.mjs --------------- CLI orchestrator, arg parser, composite pipeline
   |                        multi-track stacking via sharp, tuning detection

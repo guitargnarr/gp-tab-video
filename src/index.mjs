@@ -5,6 +5,7 @@ import { buildTimingMap } from './build-timing.mjs';
 import { generateFrames } from './generate-frames.mjs';
 import { createEncoder } from './encode-video.mjs';
 import { detectTuning } from './tuning.mjs';
+import { probeAudio } from './probe-audio.mjs';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -204,6 +205,7 @@ function parseArgs(argv) {
     style: null,       // style preset name
     hide: [],          // notation elements to hide
     show: [],          // notation elements to show (hide everything else)
+    audio: null,       // audio file (WAV/MP3/FLAC) to mux into output
   };
 
   const positional = [];
@@ -235,6 +237,8 @@ function parseArgs(argv) {
       opts.hide = argv[++i].split(',').map((s) => s.trim());
     } else if (a === '--show' && argv[i + 1]) {
       opts.show = argv[++i].split(',').map((s) => s.trim());
+    } else if (a === '--audio' && argv[i + 1]) {
+      opts.audio = argv[++i];
     } else if (!a.startsWith('--')) {
       positional.push(a);
     }
@@ -351,6 +355,7 @@ if (!opts.gpFile) {
   console.error('  --style NAME      Style preset for notation display');
   console.error('  --hide LIST       Hide notation elements (comma-separated)');
   console.error('  --show LIST       Show ONLY these elements (hides everything else)');
+  console.error('  --audio FILE      Audio file (WAV/MP3/FLAC) to mux into the output');
   console.error('');
   console.error('Platform Presets:');
   for (const [name, p] of Object.entries(PLATFORM_PRESETS)) {
@@ -498,6 +503,21 @@ async function main() {
   // Use the longest duration across tracks
   const songDurationMs = Math.max(...strips.map((s) => s.songDurationMs));
 
+  // Validate audio file if provided
+  let audioFile = null;
+  if (opts.audio) {
+    audioFile = path.resolve(opts.audio);
+    const info = probeAudio(audioFile);
+    const songSec = songDurationMs / 1000;
+    const diff = Math.abs(info.duration - songSec);
+    console.log(`\nAudio: ${path.basename(opts.audio)}`);
+    console.log(`  Duration: ${info.duration.toFixed(1)}s (song: ${songSec.toFixed(1)}s${diff > 0.5 ? `, ${diff > 0 ? '+' : ''}${(info.duration - songSec).toFixed(1)}s` : ''})`);
+    console.log(`  Format: ${info.codec}, ${info.sampleRate} Hz, ${info.channelLayout}${info.bitDepth ? `, ${info.bitDepth}-bit` : ''}`);
+    if (info.duration < songSec - 5) {
+      console.log(`  WARNING: Audio is ${(songSec - info.duration).toFixed(1)}s shorter than video -- last ${(songSec - info.duration).toFixed(1)}s will be silent`);
+    }
+  }
+
   // Save debug strips
   await fs.promises.mkdir('output', { recursive: true });
   for (const s of strips) {
@@ -541,7 +561,9 @@ async function main() {
     audioBitrate: opts.audioBitrate,
     audioSampleRate: opts.audioSampleRate,
   };
-  const encoder = createEncoder(encoderOutput, viewportWidth, outputHeight, opts.fps, alphaOutput, platformOpts);
+  // Pass audio to encoder for standalone mode (no --video). When --video is used, audio is handled in the composite step.
+  const encoderAudio = (audioFile && !compositeAfter) ? audioFile : null;
+  const encoder = createEncoder(encoderOutput, viewportWidth, outputHeight, opts.fps, alphaOutput, platformOpts, encoderAudio);
 
   let frameCount = 0;
 
@@ -637,18 +659,17 @@ async function main() {
     let filterComplex;
     let outputArgs;
 
+    // When --audio is provided, it replaces the footage audio
+    const overlayLabel = audioFile ? '[v]' : '';
+
     if (opts.vertical) {
       // Vertical (9:16): footage fills 1080x1920, tab overlay at bottom above safe zone
-      // Scale footage to 1080 wide, 1920 tall (crop/pad to fit)
-      // Tab sits above the safe margin bottom (320px for IG, 200px for Shorts)
       const safeBottom = opts.safeMarginBottom || 200;
       const tabScale = `scale=${viewportWidth}:-1`;
       filterComplex = [
-        // Scale footage to vertical frame, crop to 9:16 center
         `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[bg]`,
-        // Tab overlay: keep at rendered width, position above bottom safe zone
         `[1:v]${tabScale}[tab]`,
-        `[bg][tab]overlay=0:H-h-${safeBottom}`,
+        `[bg][tab]overlay=0:H-h-${safeBottom}${overlayLabel}`,
       ].join(';');
       outputArgs = [
         '-c:v', 'libx264',
@@ -661,8 +682,8 @@ async function main() {
         '-ar', String(opts.audioSampleRate || 48000),
       ];
     } else {
-      // Horizontal (16:9): original behavior -- tab at bottom 25% of frame
-      filterComplex = `[1:v]scale=-1:ih*0.25[tab];[0:v][tab]overlay=0:H-h-20`;
+      // Horizontal (16:9): tab at bottom 25% of frame
+      filterComplex = `[1:v]scale=-1:ih*0.25[tab];[0:v][tab]overlay=0:H-h-20${overlayLabel}`;
       outputArgs = [
         '-c:v', 'libx264',
         ...(opts.videoBitrate
@@ -678,8 +699,11 @@ async function main() {
       '-y',
       '-i', opts.video,
       '-i', encoderOutput,
+      ...(audioFile ? ['-i', audioFile] : []),
       '-filter_complex', filterComplex,
+      ...(audioFile ? ['-map', '[v]', '-map', '2:a'] : []),
       ...outputArgs,
+      '-shortest',
       outputFile,
     ];
 
