@@ -1,10 +1,22 @@
 # gp-tab-video
 
-Generate scrolling guitar tab overlay videos from Guitar Pro files. GP file in, playthrough-ready video out -- no manual video editing required.
+Two tools in one repo: scrolling guitar tab overlays for recording playthroughs, and audio-reactive visualizers for social media content.
+
+### Tab Mode
+GP file in, playthrough-ready video out -- no manual video editing required.
 
 ```bash
 node src/index.mjs song.gp 0 --style playthrough --platform youtube --video playthrough.mp4
 ```
+
+### Visualizer Mode
+Audio file in, animated social media content out -- audio-reactive backgrounds synced to song dynamics.
+
+```bash
+node src/visualizer.mjs audio.wav --style ocean --platform instagram-story
+```
+
+## Tab Mode
 
 1. Parses any GP format (GP3, GP4, GP5, GP6, GP7, GPX)
 2. Renders a horizontal tab strip with beat-accurate pixel positions
@@ -344,6 +356,44 @@ Frame generation runs at ~600 frames/sec. The bottleneck is ffmpeg encoding, not
 - **Format:** HEVC (recommended) or Apple ProRes
 - **Stabilization:** Standard (not Action Mode)
 
+## Visualizer Mode
+
+Audio-reactive animated backgrounds for social media content. No tab notation, no text overlays -- just audio-driven visuals optimized for platform specs.
+
+```bash
+# Instagram Story
+node src/visualizer.mjs audio.wav --style ocean --platform instagram-story
+
+# TikTok
+node src/visualizer.mjs audio.wav --style particles --platform tiktok
+
+# YouTube Shorts
+node src/visualizer.mjs audio.wav --style fluid --platform youtube-shorts
+```
+
+### How It Works
+
+1. Analyzes audio dynamics (per-frame RMS energy extraction)
+2. Maps energy to visual parameters (wave height, particle density, color intensity)
+3. Renders frames via Canvas 2D / WebGL driven by the audio energy map
+4. Encodes platform-optimized video with the original audio muxed in
+
+### Visual Styles
+
+| Style | Description | Audio Mapping |
+|-------|-------------|---------------|
+| `ocean` | Dark ocean surface with procedural waves | Energy controls wave height, foam, light refraction |
+| `particles` | Floating particle field in 3D space | Energy controls speed, density, clustering |
+| `fluid` | Ink-in-water / smoke simulation | Energy controls turbulence and bloom intensity |
+| `radial` | Concentric rings pulsing outward | Frequency bands map to ring radius and opacity |
+| `terrain` | Abstract wireframe landscape | Amplitude sculpts terrain height in real-time |
+
+Quiet sections produce slow, minimal visuals. Loud sections produce explosive, dense visuals. Silence fades to near-black. All transitions are smooth and driven by the actual audio waveform.
+
+### Platform Presets
+
+Same `--platform` flags as tab mode. Resolution, bitrate, and aspect ratio are handled automatically. Portrait platforms (instagram, tiktok, youtube-shorts) render vertically. Landscape platforms (youtube) render horizontally.
+
 ## Architecture
 
 ```
@@ -382,6 +432,18 @@ index.mjs --------------- CLI orchestrator, arg parser, composite pipeline
   +-- tuning.mjs --------- Tuning detection from MIDI note values
   v
 .mov or .mp4
+
+Audio file (WAV/MP3/FLAC)
+  |
+  v
+visualizer.mjs ------------ CLI orchestrator for audio-reactive video
+  |
+  +-- analyze-audio.mjs --- Per-frame RMS energy extraction via ffmpeg
+  +-- render-visuals.mjs -- Canvas 2D / WebGL frame generation
+  |                         driven by energy map (ocean, particles, fluid, etc.)
+  +-- encode-video.mjs ---- Reuses same encoder (platform-aware bitrate/codec)
+  v
+.mp4 (platform-optimized)
 ```
 
 ## Requirements
