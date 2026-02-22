@@ -268,8 +268,15 @@ CLI flags override preset values: `--platform instagram --fps 60` uses IG defaul
 
 ### Instagram Reels / YouTube Shorts (Vertical)
 
-1. Film playthrough vertically
-2. `node src/index.mjs song.gp 0 --style playthrough --platform instagram --video playthrough.mp4`
+1. Film playthrough vertically on iPhone 16 Pro Max
+2. Render with reel template:
+   ```bash
+   # One command -- iPhone footage as background, tab at bottom
+   node src/index.mjs song.gp 0 --style playthrough --template reel-title --title "Song" --artist "Artist"
+
+   # Or with iPhone footage composited directly
+   node src/index.mjs song.gp 0 --style playthrough --platform instagram --video playthrough.mp4
+   ```
 3. Upload -- tab overlay is positioned above the platform safe zone automatically
 
 ### NLE Compositing (Premiere Pro / DaVinci Resolve)
@@ -296,7 +303,15 @@ node src/ae-render.mjs output/song_tab.mov --template cinematic-title --output f
 node src/ae-render.mjs output/song_tab.mov --template my_template.json --output final.mp4
 ```
 
-**Built-in templates:** `cinematic` (dark bg + vignette), `cinematic-title` (+ song title/artist text), `dark-overlay` (video bg with cinematic grading + dark tab band)
+**Built-in templates:**
+
+| Template | Resolution | Description |
+|----------|-----------|-------------|
+| `cinematic` | 1920x1080 | Dark background + vignette |
+| `cinematic-title` | 1920x1080 | Dark bg + song title/artist text |
+| `dark-overlay` | 1920x1080 | Video bg with cinematic grading + dark tab band |
+| `reel` | 1080x1920 | Portrait video bg for IG Reels / TikTok |
+| `reel-title` | 1080x1920 | Portrait + song title/artist text |
 
 **Custom JSON templates** can specify background (video/image/solid), text layers, tab positioning, and effects (vignette, darken, color tint).
 
