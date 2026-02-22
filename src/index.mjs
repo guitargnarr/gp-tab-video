@@ -741,7 +741,7 @@ async function main() {
 
   // Chain template compositing if --template provided
   let finalOutput = outputFile;
-  if (opts.template && !opts.video) {
+  if (opts.template) {
     const compOutput = outputFile.replace(/\.\w+$/, '_comp.mp4');
     console.log(`\nCompositing with template...`);
     const { execFileSync: execFileComp } = await import('child_process');
