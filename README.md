@@ -243,6 +243,19 @@ Assumes audio starts at bar 1 beat 1 at the GP file's BPM (standard DAW bounce w
 
 ## Additional Tools
 
+### Recording Prep (Click Track Generator)
+
+```bash
+node src/prep.mjs song.gp                      # click track at 48kHz
+node src/prep.mjs song.gp --count-in 2          # 2 bars of count-in
+node src/prep.mjs song.gp --sample-rate 44100   # 44.1kHz for Logic Pro
+node src/prep.mjs song.gp --no-accent           # equal volume all beats
+```
+
+Reads the GP file's tempo map (including mid-song tempo changes and time signature changes) and generates a click track WAV. Play in earbuds while filming, or import into Logic Pro as a sync reference. The click track and gp-tab-video's tab scroll derive from the same tempo data, so they're guaranteed to be in sync.
+
+Output includes a tempo summary and Logic Pro setup instructions (exact BPM values and bar numbers for tempo automation).
+
 ### Browser Preview
 
 ```bash
@@ -292,16 +305,18 @@ Frame generation runs at ~600 frames/sec. The bottleneck is ffmpeg encoding, not
 ### YouTube (Horizontal)
 
 1. Write/arrange in Guitar Pro
-2. Record in DAW (session tempo = GP file BPM)
-3. Film playthrough horizontally (4K 30fps, HDR OFF)
-4. Transfer to Mac
-5. `node src/index.mjs song.gp 0 --style playthrough --platform youtube --video playthrough.mp4`
-6. Upload
+2. `node src/prep.mjs song.gp --count-in 2` -- generates click track + Logic Pro tempo instructions
+3. Record in DAW using click track for tempo sync
+4. Film playthrough horizontally (4K 30fps, HDR OFF) with click track in earbuds
+5. Transfer to Mac
+6. `node src/index.mjs song.gp 0 --style playthrough --platform youtube --video playthrough.mp4`
+7. Upload
 
 ### Instagram Reels / TikTok / YouTube Shorts (Portrait)
 
-1. Film playthrough vertically
-2. Render:
+1. `node src/prep.mjs song.gp --count-in 2` -- click track for tempo sync
+2. Film playthrough vertically with click in earbuds
+3. Render:
    ```bash
    # Template compositor (tab at bottom, title text above)
    node src/index.mjs song.gp 0 --style playthrough --template reel-title --title "Song" --artist "Artist"
@@ -358,6 +373,7 @@ index.mjs --------------- CLI orchestrator, arg parser, composite pipeline
   +-- composite-reel.mjs - Background video/animation + tab overlay
   |                        + neon-guitar-bg.mjs (Canvas 2D animation)
   +-- preview.mjs -------- HTTP server + browser UI (alphaTab player)
+  +-- prep.mjs ----------- Click track WAV from GP tempo map
   +-- probe-audio.mjs ---- ffprobe wrapper for audio validation
   +-- tuning.mjs --------- Tuning detection from MIDI note values
   v
