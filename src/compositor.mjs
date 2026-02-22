@@ -26,6 +26,32 @@ const FFMPEG = '/opt/homebrew/bin/ffmpeg';
 const FFPROBE = '/opt/homebrew/bin/ffprobe';
 
 /**
+ * Run ffmpeg with given args, streaming progress to stdout.
+ */
+function runFfmpeg(args) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(FFMPEG, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stderrData = '';
+    proc.stderr.on('data', (chunk) => {
+      stderrData += chunk.toString();
+      const match = chunk.toString().match(/frame=\s*(\d+)/);
+      if (match) {
+        process.stdout.write(`\r  Frame ${match[1]}...`);
+      }
+    });
+    proc.on('close', (code) => {
+      console.log('');
+      if (code !== 0) {
+        reject(new Error(`ffmpeg exited with code ${code}\n${stderrData.slice(-500)}`));
+      } else {
+        resolve();
+      }
+    });
+    proc.on('error', reject);
+  });
+}
+
+/**
  * Probe a video/image file for dimensions, fps, and duration.
  */
 function probeVideo(filePath) {
@@ -73,8 +99,9 @@ function escapeDrawtext(text) {
  *
  * Input 0: background (video/image/color)
  * Input 1: tab overlay .mov (with alpha)
+ * Input 2: watermark image (optional, when watermarkConfig provided)
  */
-function buildFilterGraph(template, tabProbe) {
+function buildFilterGraph(template, tabProbe, watermarkConfig) {
   const W = template.width || tabProbe.width;
   const H = template.height || tabProbe.height;
   const filters = [];
@@ -166,7 +193,34 @@ function buildFilterGraph(template, tabProbe) {
   }
 
   // Overlay tab
-  filters.push(`[${bgLabel}][${tabLabel}]overlay=${tabX}:${tabY}:format=auto`);
+  if (watermarkConfig) {
+    filters.push(`[${bgLabel}][${tabLabel}]overlay=${tabX}:${tabY}:format=auto[withtab]`);
+    bgLabel = 'withtab';
+  } else {
+    filters.push(`[${bgLabel}][${tabLabel}]overlay=${tabX}:${tabY}:format=auto`);
+  }
+
+  // --- Watermark overlay (optional) ---
+  if (watermarkConfig) {
+    const wm = watermarkConfig;
+    const wmScale = wm.scale || 0.12;
+    const wmOpacity = wm.opacity || 0.3;
+    const wmMargin = wm.margin || 20;
+    const wmPos = wm.position || 'bottom-right';
+    const wmW = Math.round(W * wmScale);
+
+    // Scale watermark and set opacity
+    filters.push(`[2:v]scale=${wmW}:-1,format=rgba,colorchannelmixer=aa=${wmOpacity}[wm]`);
+
+    // Position based on corner
+    let wmX, wmY;
+    if (wmPos === 'top-left') { wmX = String(wmMargin); wmY = String(wmMargin); }
+    else if (wmPos === 'top-right') { wmX = `W-w-${wmMargin}`; wmY = String(wmMargin); }
+    else if (wmPos === 'bottom-left') { wmX = String(wmMargin); wmY = `H-h-${wmMargin}`; }
+    else { wmX = `W-w-${wmMargin}`; wmY = `H-h-${wmMargin}`; } // bottom-right default
+
+    filters.push(`[${bgLabel}][wm]overlay=${wmX}:${wmY}`);
+  }
 
   return filters.join(';');
 }
@@ -178,6 +232,8 @@ function parseArgs(argv) {
     output: null,
     title: null,
     artist: null,
+    watermark: null,
+    intro: false,
   };
 
   const positional = [];
@@ -191,6 +247,10 @@ function parseArgs(argv) {
       opts.title = argv[++i];
     } else if (a === '--artist' && argv[i + 1]) {
       opts.artist = argv[++i];
+    } else if (a === '--watermark' && argv[i + 1]) {
+      opts.watermark = argv[++i];
+    } else if (a === '--intro') {
+      opts.intro = true;
     } else if (!a.startsWith('--')) {
       positional.push(a);
     }
@@ -263,6 +323,8 @@ async function main() {
     console.error('  --output FILE     Output file (default: <input>_comp.mp4)');
     console.error('  --title TEXT      Song title (replaces {title} in template)');
     console.error('  --artist TEXT     Artist name (replaces {artist} in template)');
+    console.error('  --watermark FILE  Watermark image (PNG with transparency)');
+    console.error('  --intro           Add logo intro sequence (requires --watermark)');
     console.error('');
     console.error('Built-in templates:');
     console.error('  cinematic         Dark background + vignette (1920x1080)');
@@ -346,8 +408,35 @@ async function main() {
     bgInput = 'solid';
   }
 
+  // --- Watermark setup ---
+  let watermarkConfig = null;
+  let watermarkInputArgs = [];
+  if (opts.watermark) {
+    const wmPath = path.resolve(opts.watermark);
+    if (!fs.existsSync(wmPath)) {
+      throw new Error(`Watermark image not found: ${wmPath}`);
+    }
+    watermarkConfig = {
+      position: (template.watermark && template.watermark.position) || 'bottom-right',
+      scale: (template.watermark && template.watermark.scale) || 0.12,
+      opacity: (template.watermark && template.watermark.opacity) || 0.3,
+      margin: (template.watermark && template.watermark.margin) || 20,
+    };
+    watermarkInputArgs = ['-i', wmPath];
+    console.log(`  Watermark: ${path.basename(wmPath)} (${watermarkConfig.position}, ${Math.round(watermarkConfig.opacity * 100)}% opacity)`);
+  }
+
+  if (opts.intro && !opts.watermark) {
+    throw new Error('--intro requires --watermark (the watermark image is used as the intro logo)');
+  }
+
+  // Determine output paths
+  const mainOutputPath = opts.intro
+    ? outputPath.replace(/(\.\w+)$/, '_main$1')
+    : outputPath;
+
   // Build filter graph
-  const filterComplex = buildFilterGraph(template, tabProbe);
+  const filterComplex = buildFilterGraph(template, tabProbe, watermarkConfig);
   console.log(`\nCompositing with template...`);
   console.log(`  Background: ${bgInput}`);
   console.log(`  Filter: ${filterComplex.substring(0, 120)}...`);
@@ -357,39 +446,66 @@ async function main() {
     '-y',
     ...bgInputArgs,
     '-i', inputPath,
+    ...watermarkInputArgs,
     '-filter_complex', filterComplex,
     '-c:v', 'libx264',
     '-pix_fmt', 'yuv420p',
     '-crf', '18',
     '-r', String(tabProbe.fps),
     '-t', String(tabProbe.duration),
-    outputPath,
+    mainOutputPath,
   ];
 
-  await new Promise((resolve, reject) => {
-    const proc = spawn(FFMPEG, ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+  await runFfmpeg(ffmpegArgs);
 
-    let stderrData = '';
-    proc.stderr.on('data', (chunk) => {
-      stderrData += chunk.toString();
-      // Show progress
-      const match = chunk.toString().match(/frame=\s*(\d+)/);
-      if (match) {
-        process.stdout.write(`\r  Frame ${match[1]}...`);
-      }
-    });
+  // --- Intro generation (optional) ---
+  if (opts.intro) {
+    console.log(`\nGenerating intro sequence...`);
+    const W = template.width || tabProbe.width;
+    const H = template.height || tabProbe.height;
+    const intro = template.intro || {};
+    const introDur = intro.duration || 3;
+    const fadeIn = intro.fadeIn || 1;
+    const fadeOut = intro.fadeOut || 1;
+    const introScale = intro.scale || 0.4;
+    const introBg = intro.background || '0x000000';
+    const logoW = Math.round(W * introScale);
+    const wmPath = path.resolve(opts.watermark);
 
-    proc.on('close', (code) => {
-      console.log('');
-      if (code !== 0) {
-        reject(new Error(`ffmpeg exited with code ${code}\n${stderrData.slice(-500)}`));
-      } else {
-        resolve();
-      }
-    });
+    // Build intro + concat filter graph
+    const introFilter = [
+      // Scale logo for intro (centered)
+      `[1:v]scale=${logoW}:-1,format=rgba[logo]`,
+      // Overlay logo centered on black background
+      `[0:v][logo]overlay=(W-w)/2:(H-h)/2[intro_raw]`,
+      // Fade in and out
+      `[intro_raw]fade=t=in:st=0:d=${fadeIn},fade=t=out:st=${introDur - fadeOut}:d=${fadeOut}[intro]`,
+      // Concat intro with main video
+      `[intro][2:v]concat=n=2:v=1:a=0[out]`,
+    ].join(';');
 
-    proc.on('error', reject);
-  });
+    const introArgs = [
+      '-y',
+      // Input 0: black background for intro
+      '-f', 'lavfi', '-t', String(introDur), '-i', `color=c=${introBg}:s=${W}x${H}:r=${tabProbe.fps}`,
+      // Input 1: logo image
+      '-loop', '1', '-t', String(introDur), '-i', wmPath,
+      // Input 2: main composite
+      '-i', mainOutputPath,
+      '-filter_complex', introFilter,
+      '-map', '[out]',
+      '-c:v', 'libx264',
+      '-pix_fmt', 'yuv420p',
+      '-crf', '18',
+      '-r', String(tabProbe.fps),
+      outputPath,
+    ];
+
+    await runFfmpeg(introArgs);
+
+    // Clean up temp main composite
+    try { fs.unlinkSync(mainOutputPath); } catch (_) { /* ignore */ }
+  }
 
   console.log(`\nDone!`);
   console.log(`  Output: ${outputPath}`);

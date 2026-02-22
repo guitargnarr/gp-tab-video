@@ -62,6 +62,8 @@ Compositing:
   --template T      Template compositor (JSON file or built-in name)
   --title TEXT      Song title for template text layers
   --artist TEXT     Artist name for template text layers
+  --watermark FILE  Watermark image (PNG with transparency)
+  --intro           Add logo intro sequence (requires --watermark)
 
 Audio:
   --audio FILE      Audio file (WAV/MP3/FLAC) to mux into the output
@@ -82,6 +84,7 @@ CLI flags override preset values: `--platform instagram --fps 60` uses IG defaul
 | Transparent overlay | `--transparent` | .mov ProRes 4444 with alpha |
 | Footage composite | `--video playthrough.mp4` | .mp4 -- tab over iPhone footage |
 | Template composite | `--template cinematic-title` | .mp4 -- tab + background + text + effects |
+| Branded composite | `--template ... --watermark logo.png --intro` | .mp4 -- intro sequence + watermark overlay |
 | Portrait reel | `--template reel` | .mp4 -- 1080x1920 for IG/TikTok |
 
 ## Style Presets
@@ -188,6 +191,32 @@ node src/compositor.mjs output/tab.mov --template my_template.json --output fina
 **Tab positioning:** `top`, `center`, `bottom` (default), or pixel value
 **Effects:** `darken` (0-1), `colorTint` (red/green/blue 0-1), `vignette` (boolean)
 **Text:** unlimited layers, each with position, size, color, alpha, shadow
+
+### Watermark + Intro
+
+Add a branded watermark and/or intro sequence to any template:
+
+```bash
+# Watermark only (persistent corner logo)
+node src/compositor.mjs output/tab.mov --watermark assets/charioteer.png
+
+# Intro + watermark (logo fades in centered, then main video with corner watermark)
+node src/compositor.mjs output/tab.mov --template cinematic-title --watermark assets/charioteer.png --intro --title "Song" --artist "Artist"
+
+# One-command from GP file
+node src/index.mjs song.gp 0 --style playthrough --template cinematic-title --watermark assets/charioteer.png --intro
+```
+
+Watermark defaults: bottom-right, 12% of output width, 30% opacity, 20px margin. Override via template JSON:
+
+```json
+{
+  "watermark": { "position": "top-right", "scale": 0.15, "opacity": 0.4, "margin": 30 },
+  "intro": { "duration": 3, "fadeIn": 1, "hold": 1, "fadeOut": 1, "scale": 0.4, "background": "0x000000" }
+}
+```
+
+Positions: `top-left`, `top-right`, `bottom-left`, `bottom-right`
 
 ## Rendering Features
 
