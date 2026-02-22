@@ -249,6 +249,10 @@ function parseArgs(argv) {
       opts.title = argv[++i];
     } else if (a === '--artist' && argv[i + 1]) {
       opts.artist = argv[++i];
+    } else if ((a === '--watermark' || a === '-w') && argv[i + 1]) {
+      opts.watermark = argv[++i];
+    } else if (a === '--intro') {
+      opts.intro = true;
     } else if (!a.startsWith('--')) {
       positional.push(a);
     }
@@ -369,6 +373,8 @@ if (!opts.gpFile) {
   console.error('  --template T      Template for compositing (JSON file or built-in name)');
   console.error('  --title TEXT      Song title (for template text layers)');
   console.error('  --artist TEXT     Artist name (for template text layers)');
+  console.error('  -w, --watermark FILE  Watermark image (PNG with transparency)');
+  console.error('  --intro           Add logo intro sequence (requires --watermark)');
   console.error('');
   console.error('Platform Presets:');
   for (const [name, p] of Object.entries(PLATFORM_PRESETS)) {
@@ -738,17 +744,19 @@ async function main() {
   if (opts.template && !opts.video) {
     const compOutput = outputFile.replace(/\.\w+$/, '_comp.mp4');
     console.log(`\nCompositing with template...`);
-    const { execSync: execSyncComp } = await import('child_process');
+    const { execFileSync: execFileComp } = await import('child_process');
     const compScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'compositor.mjs');
-    const compCmd = [
-      'node', compScript,
+    const compArgs = [
+      compScript,
       outputFile,
       '--template', opts.template,
       '--output', compOutput,
       ...(opts.title ? ['--title', opts.title] : []),
       ...(opts.artist ? ['--artist', opts.artist] : []),
-    ].map((a) => `"${a}"`).join(' ');
-    execSyncComp(compCmd, { stdio: 'inherit', timeout: 300000 });
+      ...(opts.watermark ? ['--watermark', opts.watermark] : []),
+      ...(opts.intro ? ['--intro'] : []),
+    ];
+    execFileComp('node', compArgs, { stdio: 'inherit', timeout: 300000 });
     finalOutput = compOutput;
   }
 
