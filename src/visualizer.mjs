@@ -244,27 +244,33 @@ function createNebulaRenderer(width, height) {
   }
 
   return function renderFrame(ctx, frameIndex, e, time) {
-    // e = { raw, slow, glacial, progress }
-    // Use GLACIAL for all formation movement -- ultra smooth
-    // Use SLOW for glow/warmth -- responsive but not twitchy
-    // Use progress for layer reveals
     const eg = e.glacial;
     const es = e.slow;
     const progress = e.progress;
 
-    // Organic breathing (pure time, no audio)
+    // Organic breathing (multi-frequency, independent of audio)
     const breathe = Math.sin(time * 0.35) * 0.03 + Math.sin(time * 0.13) * 0.02 + Math.sin(time * 0.07) * 0.01;
 
-    // Formation parameters -- all driven by glacial (very smooth)
-    const spread = 1.0 + eg * 0.15 + breathe;
+    // Formation parameters (glacial -- ultra smooth)
+    const spread = 1.0 + eg * 0.18 + breathe;
     const morphSpeed = 0.05 + eg * 0.02;
-    const morphAmount = 0.05 + eg * 0.08;
+    const morphAmount = 0.06 + eg * 0.1;
 
-    // Aesthetic parameters -- driven by slow (responsive mood)
-    const warmth = es * 0.5;
-    const glowPower = 0.35 + es * 0.65;
+    // Aesthetic parameters (slow -- responsive mood)
+    const warmth = es * 0.7;
+    const glowPower = 0.4 + es * 0.6;
 
-    // Constant smooth rotation (NO audio influence on rotation speed)
+    // --- EVOLVING COLOR PALETTE ---
+    // Hue drifts continuously through the song: purple -> blue -> teal -> magenta -> violet
+    // Each section of the song has a different color character
+    const hueDrift = time * 8; // ~8 degrees per second, full rotation in 45s
+    const baseHue = (260 + hueDrift) % 360;
+    // Warm accent hue is always offset, so the palette always has contrast
+    const accentHue = (baseHue + 60 + warmth * 30) % 360;
+    // Secondary color for ring/streaks -- complementary offset
+    const secondaryHue = (baseHue + 140) % 360;
+
+    // Constant smooth rotation
     const coreAY = time * 0.13;
     const coreAX = Math.sin(time * 0.047) * 0.3;
     const coreAZ = time * 0.025;
@@ -272,42 +278,47 @@ function createNebulaRenderer(width, height) {
     const ringAX = Math.sin(time * 0.031 + 1.5) * 0.2;
     const ringAZ = -time * 0.012;
 
-    // Layer reveal timing (0-1, clamped)
-    const ringReveal = Math.min(1, Math.max(0, (progress - 0.15) / 0.15));    // 15%-30%
-    const starReveal = Math.min(1, Math.max(0, (progress - 0.35) / 0.15));    // 35%-50%
-    const streakReveal = Math.min(1, Math.max(0, (progress - 0.55) / 0.15));  // 55%-70%
+    // Layer reveal timing
+    const ringReveal = Math.min(1, Math.max(0, (progress - 0.12) / 0.12));
+    const starReveal = Math.min(1, Math.max(0, (progress - 0.28) / 0.12));
+    const streakReveal = Math.min(1, Math.max(0, (progress - 0.45) / 0.12));
+    // New: late-stage morphing intensifies after 70%
+    const lateIntensity = Math.min(1, Math.max(0, (progress - 0.7) / 0.2));
 
-    const baseHue = 260;
-    const warmHue = 325;
+    // Late-stage: morph gets wilder, rotation tilts more, colors saturate harder
+    const lateMorph = morphAmount * (1 + lateIntensity * 0.8);
+    const lateTilt = coreAX + lateIntensity * Math.sin(time * 0.09) * 0.2;
 
     // --- Background ---
     ctx.fillStyle = '#010008';
     ctx.fillRect(0, 0, w, h);
 
-    // Volumetric atmosphere (3 offset glows, drifting slowly)
-    for (let ai = 0; ai < 3; ai++) {
-      const ax = cx + Math.sin(time * 0.04 + ai * 2.1) * baseRadius * 0.25;
-      const ay = cy + Math.cos(time * 0.03 + ai * 1.7) * baseRadius * 0.2;
-      const ar = baseRadius * (1.6 + ai * 0.4);
-      const aHue = baseHue + ai * 15 + warmth * 30;
-      const aAlpha = glowPower * (0.06 - ai * 0.015);
+    // Volumetric atmosphere (4 offset glows, vivid, drifting)
+    for (let ai = 0; ai < 4; ai++) {
+      const ax = cx + Math.sin(time * 0.04 + ai * 1.8) * baseRadius * 0.35;
+      const ay = cy + Math.cos(time * 0.03 + ai * 1.4) * baseRadius * 0.25;
+      const ar = baseRadius * (1.4 + ai * 0.5);
+      const aHue = (baseHue + ai * 25) % 360;
+      const aAlpha = glowPower * (0.1 - ai * 0.018);
       const ag = ctx.createRadialGradient(ax, ay, 0, ax, ay, ar);
-      ag.addColorStop(0, `hsla(${aHue}, 50%, 20%, ${aAlpha})`);
-      ag.addColorStop(0.4, `hsla(${aHue + 10}, 40%, 12%, ${aAlpha * 0.4})`);
+      ag.addColorStop(0, `hsla(${aHue}, ${65 + glowPower * 20}%, ${25 + glowPower * 10}%, ${aAlpha})`);
+      ag.addColorStop(0.35, `hsla(${(aHue + 20) % 360}, ${55 + glowPower * 15}%, ${15 + glowPower * 5}%, ${aAlpha * 0.4})`);
       ag.addColorStop(1, 'hsla(0, 0%, 0%, 0)');
       ctx.fillStyle = ag;
       ctx.fillRect(0, 0, w, h);
     }
 
-    // --- Stars (layer 5, fades in at ~35%) ---
+    // --- Stars (fades in at ~28%) ---
     if (starReveal > 0) {
       for (const star of stars) {
         const twinkle = 0.5 + 0.5 * Math.sin(time * star.twinkleSpeed + star.twinklePhase);
-        const alpha = star.brightness * twinkle * starReveal * 0.6;
+        const alpha = star.brightness * twinkle * starReveal * 0.7;
         if (alpha < 0.02) continue;
+        // Stars pick up color from the drifting palette
+        const sHue = (baseHue + 180 + star.twinklePhase * 30) % 360;
         ctx.beginPath();
         ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(200, 210, 240, ${alpha})`;
+        ctx.fillStyle = `hsla(${sHue}, 30%, ${70 + star.brightness * 20}%, ${alpha})`;
         ctx.fill();
       }
     }
@@ -324,16 +335,16 @@ function createNebulaRenderer(width, height) {
         const theta = fil.baseTheta + t * fil.curl + time * 0.05;
         const phi = fil.basePhi + Math.sin(t * Math.PI) * 0.4;
 
-        const nx = noise3d(t * 1.5 + time * morphSpeed, fil.baseTheta, 0) * morphAmount * baseRadius;
-        const ny = noise3d(t * 1.5, fil.baseTheta + time * morphSpeed, 10) * morphAmount * baseRadius;
-        const nz = noise3d(t * 1.5, 20, fil.baseTheta + time * morphSpeed) * morphAmount * baseRadius;
+        const nx = noise3d(t * 1.5 + time * morphSpeed, fil.baseTheta, 0) * lateMorph * baseRadius;
+        const ny = noise3d(t * 1.5, fil.baseTheta + time * morphSpeed, 10) * lateMorph * baseRadius;
+        const nz = noise3d(t * 1.5, 20, fil.baseTheta + time * morphSpeed) * lateMorph * baseRadius;
 
         const px = r * Math.sin(phi) * Math.cos(theta) + nx;
         const py = r * Math.sin(phi) * Math.sin(theta) + ny;
         const pz = r * Math.cos(phi) + nz;
 
         const bAY = coreAY * 0.7 + ringAY * 0.3;
-        const bAX = coreAX * 0.7 + ringAX * 0.3;
+        const bAX = lateTilt * 0.7 + ringAX * 0.3;
         const [rx, ry, rz] = rotateYXZ(px, py, pz, bAY, bAX, coreAZ * 0.3);
         const [sx, sy, sc, sz] = proj(rx, ry, rz);
         points.push({ sx, sy, sc, sz, t });
@@ -345,22 +356,22 @@ function createNebulaRenderer(width, height) {
     // --- Core particles ---
     for (const p of coreParticles) {
       const nv = noise3d(p.theta + time * morphSpeed, p.phi + time * morphSpeed * 0.6, p.noiseOffset);
-      const r = (p.r + nv * morphAmount) * baseRadius * spread;
+      const r = (p.r + nv * lateMorph) * baseRadius * spread;
       const px = r * Math.sin(p.phi) * Math.cos(p.theta);
       const py = r * Math.sin(p.phi) * Math.sin(p.theta);
       const pz = r * Math.cos(p.phi) * 0.65;
-      const [rx, ry, rz] = rotateYXZ(px, py, pz, coreAY, coreAX, coreAZ);
+      const [rx, ry, rz] = rotateYXZ(px, py, pz, coreAY, lateTilt, coreAZ);
       const [sx, sy, sc, sz] = proj(rx, ry, rz);
       if (sc > 0.1) drawList.push({ type: 'p', z: sz, x: sx, y: sy, sc, sz: p.size * sc, br: p.brightness, hs: p.hueShift, ly: 'c' });
     }
 
-    // --- Ring particles (layer 2, fades in) ---
+    // --- Ring particles (fades in) ---
     if (ringReveal > 0) {
       for (const p of ringParticles) {
         const nv = noise3d(p.angle + time * morphSpeed * 0.4, p.noiseOffset, time * morphSpeed * 0.3);
-        const rd = (p.rDist + nv * morphAmount * 0.3) * baseRadius * spread;
+        const rd = (p.rDist + nv * lateMorph * 0.3) * baseRadius * spread;
         const px = rd * Math.cos(p.angle + time * 0.04);
-        const py = p.yOff * baseRadius * spread + nv * morphAmount * baseRadius * 0.2;
+        const py = p.yOff * baseRadius * spread + nv * lateMorph * baseRadius * 0.2;
         const pz = rd * Math.sin(p.angle + time * 0.04);
         const [rx, ry, rz] = rotateYXZ(px, py, pz, ringAY, ringAX, ringAZ);
         const [sx, sy, sc, sz] = proj(rx, ry, rz);
@@ -375,12 +386,12 @@ function createNebulaRenderer(width, height) {
       const px = r * Math.sin(n.phi) * Math.cos(n.theta);
       const py = r * Math.sin(n.phi) * Math.sin(n.theta);
       const pz = r * Math.cos(n.phi);
-      const [rx, ry, rz] = rotateYXZ(px, py, pz, coreAY, coreAX, coreAZ);
+      const [rx, ry, rz] = rotateYXZ(px, py, pz, coreAY, lateTilt, coreAZ);
       const [sx, sy, sc, sz] = proj(rx, ry, rz);
       if (sc > 0.1) drawList.push({ type: 'n', z: sz, x: sx, y: sy, sc, size: n.size * sc * (0.5 + pulse * 0.5) * glowPower, hue: n.hue, pulse });
     }
 
-    // --- Orbiting streaks (layer 6, fades in at ~55%) ---
+    // --- Orbiting streaks (fades in at ~45%) ---
     if (streakReveal > 0) {
       for (const st of streaks) {
         const trailPts = [];
@@ -391,7 +402,7 @@ function createNebulaRenderer(width, height) {
           const px = r * Math.cos(angle);
           const py = r * Math.sin(angle) * Math.cos(st.orbitTilt) * 0.5;
           const pz = r * Math.sin(angle) * Math.sin(st.orbitTilt);
-          const [rx, ry, rz] = rotateYXZ(px, py, pz, coreAY * 0.8, coreAX * 0.6, coreAZ * 0.4);
+          const [rx, ry, rz] = rotateYXZ(px, py, pz, coreAY * 0.8, lateTilt * 0.6, coreAZ * 0.4);
           const [sx, sy, sc, sz] = proj(rx, ry, rz);
           trailPts.push({ sx, sy, sc, sz, t: ti / st.trailLen });
         }
@@ -409,7 +420,6 @@ function createNebulaRenderer(width, height) {
         const pts = item.points;
         if (pts.length < 2) continue;
 
-        // Smooth bezier curve through points
         ctx.beginPath();
         ctx.moveTo(pts[0].sx, pts[0].sy);
         for (let i = 1; i < pts.length - 1; i++) {
@@ -419,36 +429,42 @@ function createNebulaRenderer(width, height) {
         }
         ctx.lineTo(pts[pts.length - 1].sx, pts[pts.length - 1].sy);
 
-        const fh = baseHue + item.hue + warmth * (warmHue - baseHue);
-        ctx.strokeStyle = `hsla(${fh}, 55%, ${22 + glowPower * 22}%, ${0.06 + glowPower * 0.1})`;
-        ctx.lineWidth = item.lw * (0.7 + glowPower * 0.3);
+        const fh = (baseHue + item.hue) % 360;
+        ctx.strokeStyle = `hsla(${fh}, ${70 + glowPower * 15}%, ${30 + glowPower * 25}%, ${0.08 + glowPower * 0.14})`;
+        ctx.lineWidth = item.lw * (0.7 + glowPower * 0.4);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.stroke();
 
-        // Wide glow pass
-        ctx.strokeStyle = `hsla(${fh}, 45%, ${35 + glowPower * 15}%, ${0.015 + glowPower * 0.025})`;
-        ctx.lineWidth = item.lw * 4;
+        // Vivid glow pass
+        ctx.strokeStyle = `hsla(${fh}, ${60 + glowPower * 20}%, ${45 + glowPower * 20}%, ${0.02 + glowPower * 0.04})`;
+        ctx.lineWidth = item.lw * 5;
         ctx.stroke();
       }
 
       if (item.type === 'p') {
-        const hue = baseHue + item.hs + warmth * (warmHue - baseHue);
         const isCore = item.ly === 'c';
         const isRing = item.ly === 'r';
-        const sat = isCore ? (50 + item.br * 25) : isRing ? (35 + item.br * 20) : (40 + item.br * 20);
-        const light = isCore ? (22 + item.br * glowPower * 45) : isRing ? (18 + item.br * glowPower * 25) : (15 + item.br * glowPower * 28);
+        // Core uses baseHue, ring uses secondaryHue for color contrast
+        const hue = isRing
+          ? (secondaryHue + item.hs) % 360
+          : (baseHue + item.hs + warmth * (accentHue - baseHue)) % 360;
+        const sat = isCore ? (70 + item.br * 20) : isRing ? (60 + item.br * 25) : (55 + item.br * 20);
+        const light = isCore
+          ? (30 + item.br * glowPower * 45)
+          : isRing ? (25 + item.br * glowPower * 35)
+          : (20 + item.br * glowPower * 30);
         const depthF = Math.min(1, Math.max(0.15, item.sc * 1.3));
-        const alpha = item.br * (0.15 + glowPower * 0.55) * depthF;
-        const radius = item.sz * (1 + glowPower * 0.15);
+        const alpha = item.br * (0.2 + glowPower * 0.6) * depthF;
+        const radius = item.sz * (1 + glowPower * 0.2);
         if (radius < 0.25) continue;
 
-        // Glow halo
+        // Vivid glow halo
         if (radius > 1.0) {
-          const gs = radius * (isCore ? 4.5 : 3);
+          const gs = radius * (isCore ? 5 : 3.5);
           const grad = ctx.createRadialGradient(item.x, item.y, 0, item.x, item.y, gs);
-          grad.addColorStop(0, `hsla(${hue}, ${sat}%, ${light}%, ${alpha * 0.3})`);
-          grad.addColorStop(0.35, `hsla(${hue}, ${sat}%, ${light * 0.5}%, ${alpha * 0.06})`);
+          grad.addColorStop(0, `hsla(${hue}, ${sat + 10}%, ${light + 10}%, ${alpha * 0.4})`);
+          grad.addColorStop(0.3, `hsla(${hue}, ${sat}%, ${light * 0.6}%, ${alpha * 0.1})`);
           grad.addColorStop(1, 'hsla(0, 0%, 0%, 0)');
           ctx.fillStyle = grad;
           ctx.fillRect(item.x - gs, item.y - gs, gs * 2, gs * 2);
@@ -461,69 +477,72 @@ function createNebulaRenderer(width, height) {
       }
 
       if (item.type === 'n') {
-        const hue = baseHue + item.hue + warmth * (warmHue - baseHue);
+        const hue = (accentHue + item.hue) % 360;
         const ns = item.size;
 
-        const g3 = ctx.createRadialGradient(item.x, item.y, 0, item.x, item.y, ns * 2.5);
-        g3.addColorStop(0, `hsla(${hue}, 65%, 55%, ${item.pulse * glowPower * 0.12})`);
-        g3.addColorStop(0.3, `hsla(${hue}, 55%, 35%, ${item.pulse * glowPower * 0.04})`);
+        // Outer bloom -- vivid
+        const g3 = ctx.createRadialGradient(item.x, item.y, 0, item.x, item.y, ns * 3);
+        g3.addColorStop(0, `hsla(${hue}, 85%, 65%, ${item.pulse * glowPower * 0.2})`);
+        g3.addColorStop(0.25, `hsla(${hue}, 75%, 45%, ${item.pulse * glowPower * 0.08})`);
         g3.addColorStop(1, 'hsla(0, 0%, 0%, 0)');
         ctx.fillStyle = g3;
-        ctx.fillRect(item.x - ns * 2.5, item.y - ns * 2.5, ns * 5, ns * 5);
+        ctx.fillRect(item.x - ns * 3, item.y - ns * 3, ns * 6, ns * 6);
 
-        const g4 = ctx.createRadialGradient(item.x, item.y, 0, item.x, item.y, ns * 0.4);
-        g4.addColorStop(0, `hsla(${hue - 10}, 75%, 75%, ${item.pulse * glowPower * 0.4})`);
-        g4.addColorStop(1, `hsla(${hue}, 55%, 35%, 0)`);
+        // Hot white-ish center
+        const g4 = ctx.createRadialGradient(item.x, item.y, 0, item.x, item.y, ns * 0.5);
+        g4.addColorStop(0, `hsla(${(hue - 15 + 360) % 360}, 90%, 85%, ${item.pulse * glowPower * 0.6})`);
+        g4.addColorStop(1, `hsla(${hue}, 70%, 45%, 0)`);
         ctx.fillStyle = g4;
-        ctx.fillRect(item.x - ns * 0.4, item.y - ns * 0.4, ns * 0.8, ns * 0.8);
+        ctx.fillRect(item.x - ns * 0.5, item.y - ns * 0.5, ns, ns);
       }
 
       if (item.type === 'streak') {
         const pts = item.points;
         if (pts.length < 2) continue;
-        const sh = baseHue + item.hue + warmth * (warmHue - baseHue) - 15;
+        const sh = (secondaryHue + item.hue) % 360;
 
-        // Draw trail as series of segments with fading alpha
         for (let i = 0; i < pts.length - 1; i++) {
           const fade = (1 - pts[i].t) * item.reveal;
-          const alpha = fade * glowPower * 0.35;
+          const alpha = fade * glowPower * 0.45;
           if (alpha < 0.01) continue;
-          const lw = (1 - pts[i].t) * 3 * item.reveal;
+          const lw = (1 - pts[i].t) * 3.5 * item.reveal;
 
           ctx.beginPath();
           ctx.moveTo(pts[i].sx, pts[i].sy);
           ctx.lineTo(pts[i + 1].sx, pts[i + 1].sy);
-          ctx.strokeStyle = `hsla(${sh}, 70%, ${50 + glowPower * 20}%, ${alpha})`;
+          ctx.strokeStyle = `hsla(${sh}, 80%, ${55 + glowPower * 25}%, ${alpha})`;
           ctx.lineWidth = lw;
           ctx.lineCap = 'round';
           ctx.stroke();
         }
 
-        // Bright head
+        // Bright head with flare
         const head = pts[0];
-        const headSize = 4 * item.reveal * glowPower;
-        const hg = ctx.createRadialGradient(head.sx, head.sy, 0, head.sx, head.sy, headSize * 3);
-        hg.addColorStop(0, `hsla(${sh}, 80%, 80%, ${item.reveal * glowPower * 0.5})`);
-        hg.addColorStop(0.4, `hsla(${sh}, 60%, 50%, ${item.reveal * glowPower * 0.15})`);
+        const headSize = 5 * item.reveal * glowPower;
+        const hg = ctx.createRadialGradient(head.sx, head.sy, 0, head.sx, head.sy, headSize * 4);
+        hg.addColorStop(0, `hsla(${sh}, 90%, 90%, ${item.reveal * glowPower * 0.6})`);
+        hg.addColorStop(0.2, `hsla(${sh}, 85%, 65%, ${item.reveal * glowPower * 0.25})`);
+        hg.addColorStop(0.5, `hsla(${sh}, 70%, 45%, ${item.reveal * glowPower * 0.08})`);
         hg.addColorStop(1, 'hsla(0, 0%, 0%, 0)');
         ctx.fillStyle = hg;
-        ctx.fillRect(head.sx - headSize * 3, head.sy - headSize * 3, headSize * 6, headSize * 6);
+        ctx.fillRect(head.sx - headSize * 4, head.sy - headSize * 4, headSize * 8, headSize * 8);
       }
     }
 
-    // --- Core radiance ---
-    const cs = baseRadius * (0.2 + glowPower * 0.12);
+    // --- Core radiance (vivid, color-shifting) ---
+    const cs = baseRadius * (0.25 + glowPower * 0.15);
+    const coreHue = (baseHue + 15) % 360;
     const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, cs);
-    cg.addColorStop(0, `rgba(${150 + Math.floor(warmth * 50)}, ${80 + Math.floor(warmth * 25)}, ${200}, ${glowPower * 0.08})`);
-    cg.addColorStop(0.35, `rgba(${70 + Math.floor(warmth * 30)}, ${25}, ${130}, ${glowPower * 0.03})`);
-    cg.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    cg.addColorStop(0, `hsla(${coreHue}, ${75 + glowPower * 15}%, ${50 + glowPower * 15}%, ${glowPower * 0.12})`);
+    cg.addColorStop(0.3, `hsla(${(coreHue + 20) % 360}, ${60 + glowPower * 10}%, ${30 + glowPower * 10}%, ${glowPower * 0.04})`);
+    cg.addColorStop(1, 'hsla(0, 0%, 0%, 0)');
     ctx.fillStyle = cg;
     ctx.fillRect(0, 0, w, h);
 
     // --- Vignette ---
     const vig = ctx.createRadialGradient(cx, cy, h * 0.18, cx, cy, h * 0.92);
     vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    vig.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+    vig.addColorStop(1, 'rgba(0, 0, 0, 0.45)');
     ctx.fillStyle = vig;
     ctx.fillRect(0, 0, w, h);
   };
