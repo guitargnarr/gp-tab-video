@@ -242,6 +242,11 @@ Audio:
   --audio FILE      Audio file (WAV/MP3/FLAC) to mux into the output
                     With --video: replaces footage audio with this file
 
+Template:
+  --template T      Template for compositing (JSON file or built-in name)
+  --title TEXT      Song title for template text layers
+  --artist TEXT     Artist name for template text layers
+
 Platform:
   --platform NAME   Platform preset (sets resolution, bitrate, safe zones)
   --vertical        Force 9:16 vertical output
@@ -275,18 +280,25 @@ For maximum control, render the tab overlay separately:
 2. Import into Premiere/Resolve as V3 layer over footage
 3. Scale/position to taste, apply color grading, export
 
-### After Effects Automation (aerender)
+### Template Compositing (ffmpeg-native)
 
-The transparent .mov overlay can be composited headlessly using After Effects:
+Composite the tab overlay onto a designed template with background, text, and effects -- no external software required:
 
 ```bash
-# Render tab overlay
-node src/index.mjs song.gp 0 --transparent --style playthrough
+# One command with built-in template:
+node src/index.mjs song.gp 0 --style playthrough --template cinematic-title --title "My Song" --artist "Artist"
 
-# Composite via AE template + aerender (no GUI)
-"/Applications/Adobe After Effects 2026/aerender" \
-  -project template.aep -comp "Main" -output final.mp4
+# Two steps (for more control):
+node src/index.mjs song.gp 0 --transparent --style playthrough
+node src/ae-render.mjs output/song_tab.mov --template cinematic-title --output final.mp4
+
+# Custom template from JSON:
+node src/ae-render.mjs output/song_tab.mov --template my_template.json --output final.mp4
 ```
+
+**Built-in templates:** `cinematic` (dark bg + vignette), `cinematic-title` (+ song title/artist text), `dark-overlay` (video bg with cinematic grading + dark tab band)
+
+**Custom JSON templates** can specify background (video/image/solid), text layers, tab positioning, and effects (vignette, darken, color tint).
 
 ### iPhone 16 Pro Max Camera Settings
 
@@ -322,7 +334,7 @@ Completed features are checked. Remaining work toward the full automated playthr
 - [x] Browser-based live preview with multi-track color-coded toggle
 - [x] Batch rendering (multiple songs, multiple platforms in one run)
 - [x] Composite reel pipeline (background video/animation + tab overlay)
-- [ ] AE template automation (ExtendScript + aerender pipeline)
+- [x] Template compositing (ffmpeg-native -- background, text, effects, no external software)
 - [x] Audio sync from Logic Pro export (WAV alignment with GP file BPM)
 
 ## Architecture
@@ -362,8 +374,10 @@ index.mjs --------------- CLI orchestrator, arg parser, composite pipeline
   |                        + neon-guitar-bg.mjs (Canvas 2D animation renderer)
   +-- preview.mjs -------- HTTP server + browser UI (alphaTab player)
   |                        + multi-track color-coded toggle chips
+  +-- ae-render.mjs ------- Template compositor (ffmpeg filter graphs)
+  |                        + built-in templates + custom JSON templates
   v
-.mov or .mp4 (or composite reel with cinematic background)
+.mov or .mp4 (or composite reel, or AE-rendered final)
 ```
 
 ## Requirements

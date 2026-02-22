@@ -8,6 +8,7 @@ import { detectTuning } from './tuning.mjs';
 import { probeAudio } from './probe-audio.mjs';
 import * as path from 'path';
 import * as fs from 'fs';
+import { fileURLToPath } from 'url';
 
 // --- Platform presets ---
 // Sources:
@@ -206,6 +207,9 @@ function parseArgs(argv) {
     hide: [],          // notation elements to hide
     show: [],          // notation elements to show (hide everything else)
     audio: null,       // audio file (WAV/MP3/FLAC) to mux into output
+    template: null,    // template (JSON or built-in name) for compositing
+    title: null,       // song title for template text layers
+    artist: null,      // artist name for template text layers
   };
 
   const positional = [];
@@ -239,6 +243,12 @@ function parseArgs(argv) {
       opts.show = argv[++i].split(',').map((s) => s.trim());
     } else if (a === '--audio' && argv[i + 1]) {
       opts.audio = argv[++i];
+    } else if (a === '--template' && argv[i + 1]) {
+      opts.template = argv[++i];
+    } else if (a === '--title' && argv[i + 1]) {
+      opts.title = argv[++i];
+    } else if (a === '--artist' && argv[i + 1]) {
+      opts.artist = argv[++i];
     } else if (!a.startsWith('--')) {
       positional.push(a);
     }
@@ -356,6 +366,9 @@ if (!opts.gpFile) {
   console.error('  --hide LIST       Hide notation elements (comma-separated)');
   console.error('  --show LIST       Show ONLY these elements (hides everything else)');
   console.error('  --audio FILE      Audio file (WAV/MP3/FLAC) to mux into the output');
+  console.error('  --template T      Template for compositing (JSON file or built-in name)');
+  console.error('  --title TEXT      Song title (for template text layers)');
+  console.error('  --artist TEXT     Artist name (for template text layers)');
   console.error('');
   console.error('Platform Presets:');
   for (const [name, p] of Object.entries(PLATFORM_PRESETS)) {
@@ -404,6 +417,11 @@ if (!opts.gpFile) {
   console.error('  node src/index.mjs song.gp 0 --hide tuning,trackNames      # Hide specific elements');
   console.error('  node src/index.mjs song.gp 0 --show palmMute,harmonics     # Show ONLY these');
   process.exit(1);
+}
+
+// --template requires transparent .mov as intermediate
+if (opts.template) {
+  opts.transparent = true;
 }
 
 const defaultExt = opts.transparent || opts.video ? '.mov' : '.mp4';
@@ -715,15 +733,35 @@ async function main() {
     await fs.promises.unlink(encoderOutput).catch(() => {});
   }
 
+  // Chain template compositing if --template provided
+  let finalOutput = outputFile;
+  if (opts.template && !opts.video) {
+    const compOutput = outputFile.replace(/\.\w+$/, '_comp.mp4');
+    console.log(`\nCompositing with template...`);
+    const { execSync: execSyncComp } = await import('child_process');
+    const compScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'ae-render.mjs');
+    const compCmd = [
+      'node', compScript,
+      outputFile,
+      '--template', opts.template,
+      '--output', compOutput,
+      ...(opts.title ? ['--title', opts.title] : []),
+      ...(opts.artist ? ['--artist', opts.artist] : []),
+    ].map((a) => `"${a}"`).join(' ');
+    execSyncComp(compCmd, { stdio: 'inherit', timeout: 300000 });
+    finalOutput = compOutput;
+  }
+
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   const orientation = opts.vertical ? '9:16 vertical' : '16:9 horizontal';
   console.log(`\nDone in ${elapsed}s!`);
-  console.log(`  Output: ${outputFile}`);
+  console.log(`  Output: ${finalOutput}`);
   console.log(`  Frames: ${frameCount}`);
   console.log(`  Duration: ${(songDurationMs / 1000).toFixed(1)}s`);
   console.log(`  Resolution: ${viewportWidth}x${outputHeight} @ ${opts.fps}fps (${orientation})`);
   if (opts.platform) console.log(`  Platform: ${opts.platform}`);
-  console.log(`\nOpen with: open '${outputFile}'`);
+  if (opts.template) console.log(`  Template: ${opts.template}`);
+  console.log(`\nOpen with: open '${finalOutput}'`);
 }
 
 main().catch((err) => {
