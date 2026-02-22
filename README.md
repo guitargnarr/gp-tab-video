@@ -297,10 +297,10 @@ node src/index.mjs song.gp 0 --style playthrough --template cinematic-title --ti
 
 # Two steps (for more control):
 node src/index.mjs song.gp 0 --transparent --style playthrough
-node src/ae-render.mjs output/song_tab.mov --template cinematic-title --output final.mp4
+node src/compositor.mjs output/song_tab.mov --template cinematic-title --output final.mp4
 
 # Custom template from JSON:
-node src/ae-render.mjs output/song_tab.mov --template my_template.json --output final.mp4
+node src/compositor.mjs output/song_tab.mov --template my_template.json --output final.mp4
 ```
 
 **Built-in templates:**
@@ -389,10 +389,10 @@ index.mjs --------------- CLI orchestrator, arg parser, composite pipeline
   |                        + neon-guitar-bg.mjs (Canvas 2D animation renderer)
   +-- preview.mjs -------- HTTP server + browser UI (alphaTab player)
   |                        + multi-track color-coded toggle chips
-  +-- ae-render.mjs ------- Template compositor (ffmpeg filter graphs)
+  +-- compositor.mjs ------- Template compositor (ffmpeg filter graphs)
   |                        + built-in templates + custom JSON templates
   v
-.mov or .mp4 (or composite reel, or AE-rendered final)
+.mov or .mp4 (or composite reel, or template-composited final)
 ```
 
 ## Requirements

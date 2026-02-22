@@ -6,7 +6,7 @@
  * No After Effects required -- pure ffmpeg filter graphs.
  *
  * Usage:
- *   node src/ae-render.mjs <tab.mov> --template <template.json> [--output final.mp4]
+ *   node src/compositor.mjs <tab.mov> --template <template.json> [--output final.mp4]
  *
  * Template JSON format:
  *   {
@@ -256,7 +256,7 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
 
   if (!opts.input) {
-    console.error('Usage: node src/ae-render.mjs <tab.mov> [--template <file.json|name>] [--output final.mp4]');
+    console.error('Usage: node src/compositor.mjs <tab.mov> [--template <file.json|name>] [--output final.mp4]');
     console.error('');
     console.error('Options:');
     console.error('  --template FILE   Template JSON file or built-in name');

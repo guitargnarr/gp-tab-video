@@ -739,7 +739,7 @@ async function main() {
     const compOutput = outputFile.replace(/\.\w+$/, '_comp.mp4');
     console.log(`\nCompositing with template...`);
     const { execSync: execSyncComp } = await import('child_process');
-    const compScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'ae-render.mjs');
+    const compScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'compositor.mjs');
     const compCmd = [
       'node', compScript,
       outputFile,
