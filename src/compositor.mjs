@@ -18,7 +18,7 @@
  *   }
  */
 
-import { execSync, spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -59,10 +59,10 @@ function probeVideo(filePath) {
     throw new Error(`File not found: ${filePath}`);
   }
 
-  const cmd = `${FFPROBE} -v quiet -print_format json -show_format -show_streams "${filePath}"`;
   let result;
   try {
-    result = JSON.parse(execSync(cmd, { encoding: 'utf8' }));
+    const raw = execFileSync(FFPROBE, ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', filePath], { encoding: 'utf8' });
+    result = JSON.parse(raw);
   } catch (e) {
     throw new Error(`Failed to probe file: ${e.message}`);
   }
@@ -91,7 +91,8 @@ function probeVideo(filePath) {
  * Escape text for ffmpeg drawtext filter.
  */
 function escapeDrawtext(text) {
-  return text.replace(/'/g, "'\\\\\\''").replace(/:/g, '\\:').replace(/\\/g, '\\\\');
+  // Order matters: escape backslashes first, then special chars
+  return text.replace(/\\/g, '\\\\').replace(/'/g, "'\\\\\\''").replace(/:/g, '\\:');
 }
 
 /**
@@ -239,19 +240,22 @@ function parseArgs(argv) {
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--template' && argv[i + 1]) {
+    if ((a === '--template' || a === '-t') && argv[i + 1]) {
       opts.template = argv[++i];
-    } else if (a === '--output' && argv[i + 1]) {
+    } else if ((a === '--output' || a === '-o') && argv[i + 1]) {
       opts.output = argv[++i];
     } else if (a === '--title' && argv[i + 1]) {
       opts.title = argv[++i];
     } else if (a === '--artist' && argv[i + 1]) {
       opts.artist = argv[++i];
-    } else if (a === '--watermark' && argv[i + 1]) {
+    } else if ((a === '--watermark' || a === '-w') && argv[i + 1]) {
       opts.watermark = argv[++i];
     } else if (a === '--intro') {
       opts.intro = true;
-    } else if (!a.startsWith('--')) {
+    } else if (a.startsWith('-')) {
+      console.error(`Unknown option: ${a}`);
+      process.exit(1);
+    } else {
       positional.push(a);
     }
   }
@@ -319,12 +323,12 @@ async function main() {
     console.error('Usage: node src/compositor.mjs <tab.mov> [--template <file.json|name>] [--output final.mp4]');
     console.error('');
     console.error('Options:');
-    console.error('  --template FILE   Template JSON file or built-in name');
-    console.error('  --output FILE     Output file (default: <input>_comp.mp4)');
-    console.error('  --title TEXT      Song title (replaces {title} in template)');
-    console.error('  --artist TEXT     Artist name (replaces {artist} in template)');
-    console.error('  --watermark FILE  Watermark image (PNG with transparency)');
-    console.error('  --intro           Add logo intro sequence (requires --watermark)');
+    console.error('  -t, --template FILE   Template JSON file or built-in name');
+    console.error('  -o, --output FILE     Output file (default: <input>_comp.mp4)');
+    console.error('  --title TEXT          Song title (replaces {title} in template)');
+    console.error('  --artist TEXT         Artist name (replaces {artist} in template)');
+    console.error('  -w, --watermark FILE  Watermark image (PNG with transparency)');
+    console.error('  --intro               Add logo intro sequence (requires --watermark)');
     console.error('');
     console.error('Built-in templates:');
     console.error('  cinematic         Dark background + vignette (1920x1080)');
@@ -501,10 +505,12 @@ async function main() {
       outputPath,
     ];
 
-    await runFfmpeg(introArgs);
-
-    // Clean up temp main composite
-    try { fs.unlinkSync(mainOutputPath); } catch (_) { /* ignore */ }
+    try {
+      await runFfmpeg(introArgs);
+    } finally {
+      // Clean up temp main composite
+      try { fs.unlinkSync(mainOutputPath); } catch (_) { /* ignore */ }
+    }
   }
 
   console.log(`\nDone!`);
