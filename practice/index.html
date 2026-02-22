@@ -992,6 +992,16 @@
           <select id="genPattern">${options.patterns.map(p => `<option value="${p}"${p === 'ascending' ? ' selected' : ''}>${p.replace(/_/g, ' ')}</option>`).join('')}</select>
         </div>
         <div class="gen-field">
+          <label>Position</label>
+          <select id="genPosition">
+            <option value="1">1 (E shape / open)</option>
+            <option value="2">2 (D shape)</option>
+            <option value="3" selected>3 (C shape)</option>
+            <option value="4">4 (A shape)</option>
+            <option value="5">5 (G shape)</option>
+          </select>
+        </div>
+        <div class="gen-field">
           <label>Tuning</label>
           <select id="genTuning">${options.tunings.map(t => `<option value="${t}"${t === 'standard' ? ' selected' : ''}>${t.replace(/_/g, ' ')}</option>`).join('')}</select>
         </div>
@@ -1031,6 +1041,7 @@
       root: document.getElementById('genRoot').value,
       scale: document.getElementById('genScale').value,
       pattern: document.getElementById('genPattern').value,
+      position: parseInt(document.getElementById('genPosition').value) || 1,
       tuning: document.getElementById('genTuning').value,
       bars: parseInt(document.getElementById('genBars').value) || 4,
       tempo: parseInt(document.getElementById('genTempo').value) || 120,
