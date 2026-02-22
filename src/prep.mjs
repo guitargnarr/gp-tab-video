@@ -33,6 +33,7 @@ function parseArgs(argv) {
     sampleRate: 48000,
     countIn: 0,
     accent: true,
+    subdivide: 1,
     track: 0,
   };
 
@@ -47,6 +48,8 @@ function parseArgs(argv) {
       opts.countIn = parseInt(argv[++i], 10);
     } else if (a === '--no-accent') {
       opts.accent = false;
+    } else if (a === '--subdivide' && argv[i + 1]) {
+      opts.subdivide = parseInt(argv[++i], 10);
     } else if (a === '--track' && argv[i + 1]) {
       opts.track = parseInt(argv[++i], 10);
     } else if (a.startsWith('-')) {
@@ -101,7 +104,7 @@ function buildTempoMap(score) {
 
 // --- Beat events ---
 
-function generateClickEvents(score, tickToMs) {
+function generateClickEvents(score, tickToMs, subdivide = 1) {
   const clicks = [];
 
   for (let i = 0; i < score.masterBars.length; i++) {
@@ -109,24 +112,28 @@ function generateClickEvents(score, tickToMs) {
     const timeSigNum = mb.timeSignatureNumerator;
     const timeSigDen = mb.timeSignatureDenominator;
     const beatDurationTicks = QUARTER_TIME * (4 / timeSigDen);
+    const subTicks = beatDurationTicks / subdivide;
 
     for (let beat = 0; beat < timeSigNum; beat++) {
-      const tick = mb.start + beat * beatDurationTicks;
-      const ms = tickToMs(tick);
-      clicks.push({
-        ms,
-        barNumber: i + 1,
-        beat: beat + 1,
-        isDownbeat: beat === 0,
-        timeSig: `${timeSigNum}/${timeSigDen}`,
-      });
+      for (let sub = 0; sub < subdivide; sub++) {
+        const tick = mb.start + beat * beatDurationTicks + sub * subTicks;
+        const ms = tickToMs(tick);
+        clicks.push({
+          ms,
+          barNumber: i + 1,
+          beat: beat + 1,
+          isDownbeat: beat === 0 && sub === 0,
+          isSubdivision: sub > 0,
+          timeSig: `${timeSigNum}/${timeSigDen}`,
+        });
+      }
     }
   }
 
   return clicks;
 }
 
-function addCountIn(clicks, score, countInBars) {
+function addCountIn(clicks, score, countInBars, subdivide = 1) {
   if (countInBars <= 0) return { clicks, offsetMs: 0 };
 
   const firstBar = score.masterBars[0];
@@ -136,19 +143,23 @@ function addCountIn(clicks, score, countInBars) {
 
   // Duration of one beat in ms
   const beatMs = (60000 / bpm) * (4 / timeSigDen);
+  const subMs = beatMs / subdivide;
   const barMs = beatMs * timeSigNum;
   const offsetMs = barMs * countInBars;
 
   const countInClicks = [];
   for (let bar = 0; bar < countInBars; bar++) {
     for (let beat = 0; beat < timeSigNum; beat++) {
-      countInClicks.push({
-        ms: bar * barMs + beat * beatMs,
-        barNumber: -(countInBars - bar) + 1, // negative bar numbers for count-in
-        beat: beat + 1,
-        isDownbeat: beat === 0,
-        timeSig: `${timeSigNum}/${timeSigDen}`,
-      });
+      for (let sub = 0; sub < subdivide; sub++) {
+        countInClicks.push({
+          ms: bar * barMs + beat * beatMs + sub * subMs,
+          barNumber: -(countInBars - bar) + 1,
+          beat: beat + 1,
+          isDownbeat: beat === 0 && sub === 0,
+          isSubdivision: sub > 0,
+          timeSig: `${timeSigNum}/${timeSigDen}`,
+        });
+      }
     }
   }
 
@@ -178,10 +189,12 @@ function renderClickTrack(clicks, totalDurationMs, sampleRate, accent) {
   // Pre-generate click sounds
   const hiClick = generateClickSample(sampleRate, 1000, 8, 0.9);  // downbeat
   const loClick = generateClickSample(sampleRate, 800, 6, 0.6);   // other beats
+  const subClick = generateClickSample(sampleRate, 600, 4, 0.35); // subdivision
 
   for (const click of clicks) {
     const samplePos = Math.floor((sampleRate * click.ms) / 1000);
-    const clickSound = (accent && click.isDownbeat) ? hiClick : loClick;
+    const clickSound = click.isSubdivision ? subClick
+      : (accent && click.isDownbeat) ? hiClick : loClick;
 
     for (let j = 0; j < clickSound.length && samplePos + j < totalSamples; j++) {
       audio[samplePos + j] += clickSound[j];
@@ -279,6 +292,7 @@ async function main() {
     console.error('  -o, --output FILE   Output WAV path (default: output/<name>_click.wav)');
     console.error('  --sample-rate N     44100 or 48000 (default: 48000)');
     console.error('  --count-in N        Bars of count-in before bar 1 (default: 0)');
+    console.error('  --subdivide N       Clicks per beat: 2 = eighth notes, 3 = triplets (default: 1)');
     console.error('  --no-accent         Equal volume for all beats (no downbeat accent)');
     console.error('  --track N           Track index for tuning display (default: 0)');
     process.exit(1);
@@ -336,15 +350,20 @@ async function main() {
   }
 
   // Generate click events
-  let clicks = generateClickEvents(score, tickToMs);
+  let clicks = generateClickEvents(score, tickToMs, opts.subdivide);
   let totalDurationMs = songDurationMs;
 
   // Count-in
   if (opts.countIn > 0) {
-    const result = addCountIn(clicks, score, opts.countIn);
+    const result = addCountIn(clicks, score, opts.countIn, opts.subdivide);
     clicks = result.clicks;
     totalDurationMs += result.offsetMs;
     console.log(`\nCount-in: ${opts.countIn} bar(s) at ${score.tempo} BPM`);
+  }
+
+  if (opts.subdivide > 1) {
+    const subNames = { 2: 'eighth notes', 3: 'triplets', 4: 'sixteenth notes' };
+    console.log(`  Subdivide: ${opts.subdivide}x (${subNames[opts.subdivide] || opts.subdivide + ' per beat'})`);
   }
 
   // Synthesize audio

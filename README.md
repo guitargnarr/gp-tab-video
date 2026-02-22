@@ -248,11 +248,15 @@ Assumes audio starts at bar 1 beat 1 at the GP file's BPM (standard DAW bounce w
 ```bash
 node src/prep.mjs song.gp                      # click track at 48kHz
 node src/prep.mjs song.gp --count-in 2          # 2 bars of count-in
+node src/prep.mjs song.gp --subdivide 2         # eighth note clicks (2x feel)
+node src/prep.mjs song.gp --subdivide 3         # triplet clicks
 node src/prep.mjs song.gp --sample-rate 44100   # 44.1kHz for Logic Pro
 node src/prep.mjs song.gp --no-accent           # equal volume all beats
 ```
 
 Reads the GP file's tempo map (including mid-song tempo changes and time signature changes) and generates a click track WAV. Play in earbuds while filming, or import into Logic Pro as a sync reference. The click track and gp-tab-video's tab scroll derive from the same tempo data, so they're guaranteed to be in sync.
+
+`--subdivide 2` is essential for slow tempos -- a 60 BPM file feels like 120 BPM with eighth-note clicks. Three distinct click sounds: high (downbeat), medium (other beats), soft (subdivisions).
 
 Output includes a tempo summary and Logic Pro setup instructions (exact BPM values and bar numbers for tempo automation).
 
