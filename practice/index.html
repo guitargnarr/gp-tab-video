@@ -991,6 +991,72 @@
           <label>Pattern</label>
           <select id="genPattern">${options.patterns.map(p => `<option value="${p}"${p === 'ascending' ? ' selected' : ''}>${p.replace(/_/g, ' ')}</option>`).join('')}</select>
         </div>
+
+        <!-- Pattern-specific controls (shown/hidden by updatePatternControls) -->
+        <div class="gen-field gen-pattern-opt" id="opt-direction" style="display:none">
+          <label>Direction</label>
+          <select id="genDirection">
+            <option value="ascending" selected>ascending</option>
+            <option value="descending">descending</option>
+          </select>
+        </div>
+        <div class="gen-field gen-pattern-opt" id="opt-group_size" style="display:none">
+          <label>Group Size</label>
+          <select id="genGroupSize">
+            <option value="2">2</option>
+            <option value="3" selected>3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+          </select>
+        </div>
+        <div class="gen-field gen-pattern-opt" id="opt-interval_size" style="display:none">
+          <label>Interval</label>
+          <select id="genIntervalSize">
+            <option value="3" selected>3rds</option>
+            <option value="4">4ths</option>
+            <option value="5">5ths</option>
+            <option value="6">6ths</option>
+            <option value="8">octaves</option>
+          </select>
+        </div>
+        <div class="gen-field gen-pattern-opt" id="opt-skip" style="display:none">
+          <label>Strings to Skip</label>
+          <select id="genSkip">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+          </select>
+        </div>
+        <div class="gen-field gen-pattern-opt" id="opt-approach" style="display:none">
+          <label>Approach</label>
+          <select id="genApproach">
+            <option value="above_below" selected>above then below</option>
+            <option value="below_above">below then above</option>
+            <option value="above">above only</option>
+            <option value="below">below only</option>
+          </select>
+        </div>
+        <div class="gen-field gen-pattern-opt" id="opt-lick_name" style="display:none">
+          <label>Lick Template</label>
+          <select id="genLickName">
+            <option value="bb_king_box" selected>BB King box</option>
+            <option value="clapton_turnaround">Clapton turnaround</option>
+            <option value="hendrix_hammer">Hendrix hammer</option>
+            <option value="gilmour_bend">Gilmour bend</option>
+            <option value="minor_pent_run">minor pent run</option>
+          </select>
+        </div>
+        <div class="gen-field gen-pattern-opt" id="opt-notes_per_string" style="display:none">
+          <label>Notes per String</label>
+          <select id="genNotesPerString">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+
         <div class="gen-field">
           <label>Position</label>
           <select id="genPosition">
@@ -1021,6 +1087,28 @@
       </div>
     `;
 
+    // Pattern -> which extra controls to show
+    const PATTERN_CONTROLS = {
+      sequence:        ['direction', 'group_size'],
+      intervals:       ['direction', 'interval_size'],
+      string_skip:     ['skip'],
+      enclosure:       ['approach'],
+      pentatonic_lick: ['lick_name'],
+      economy:         ['notes_per_string'],
+    };
+
+    function updatePatternControls() {
+      const pattern = document.getElementById('genPattern').value;
+      const show = PATTERN_CONTROLS[pattern] || [];
+      document.querySelectorAll('.gen-pattern-opt').forEach(el => {
+        const key = el.id.replace('opt-', '');
+        el.style.display = show.includes(key) ? '' : 'none';
+      });
+    }
+
+    document.getElementById('genPattern').addEventListener('change', updatePatternControls);
+    updatePatternControls(); // set initial state
+
     document.getElementById('genTempo').addEventListener('input', (e) => {
       document.getElementById('genTempoVal').textContent = e.target.value;
     });
@@ -1037,15 +1125,39 @@
     // Stop any current playback
     stopSectionPlayback();
 
+    const pattern = document.getElementById('genPattern').value;
     const params = {
       root: document.getElementById('genRoot').value,
       scale: document.getElementById('genScale').value,
-      pattern: document.getElementById('genPattern').value,
+      pattern,
       position: parseInt(document.getElementById('genPosition').value) || 1,
       tuning: document.getElementById('genTuning').value,
       bars: parseInt(document.getElementById('genBars').value) || 4,
       tempo: parseInt(document.getElementById('genTempo').value) || 120,
     };
+
+    // Add pattern-specific params only when relevant
+    if (pattern === 'sequence' || pattern === 'intervals') {
+      params.direction = document.getElementById('genDirection').value;
+    }
+    if (pattern === 'sequence') {
+      params.group_size = parseInt(document.getElementById('genGroupSize').value);
+    }
+    if (pattern === 'intervals') {
+      params.interval_size = parseInt(document.getElementById('genIntervalSize').value);
+    }
+    if (pattern === 'string_skip') {
+      params.skip = parseInt(document.getElementById('genSkip').value);
+    }
+    if (pattern === 'enclosure') {
+      params.approach = document.getElementById('genApproach').value;
+    }
+    if (pattern === 'pentatonic_lick') {
+      params.lick_name = document.getElementById('genLickName').value;
+    }
+    if (pattern === 'economy') {
+      params.notes_per_string = parseInt(document.getElementById('genNotesPerString').value);
+    }
 
     try {
       const resp = await fetch('/api/generate', {
