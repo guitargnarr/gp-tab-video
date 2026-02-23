@@ -71,6 +71,71 @@ function writeWav(filePath, samples, sampleRate) {
   fs.writeFileSync(filePath, buffer);
 }
 
+function hashFile(filePath) {
+  const data = fs.readFileSync(filePath);
+  return crypto.createHash('sha256').update(data).digest('hex').slice(0, 16);
+}
+
+function statePath(gpPath, outputDir) {
+  const base = path.basename(gpPath, path.extname(gpPath));
+  return path.resolve(outputDir, `${base}_practice.json`);
+}
+
+function loadState(gpPath, outputDir, chunks, baseTempo) {
+  const sp = statePath(gpPath, outputDir);
+  const gpHash = hashFile(gpPath);
+
+  if (fs.existsSync(sp)) {
+    const data = JSON.parse(fs.readFileSync(sp, 'utf-8'));
+    if (data.gpFileHash === gpHash) {
+      for (const chunk of chunks) {
+        if (!data.chunks[chunk.id]) {
+          data.chunks[chunk.id] = {
+            barRange: chunk.barRange,
+            difficulty: chunk.difficulty,
+            masteryLevel: 0,
+            lastPracticed: null,
+            nextReview: null,
+            history: [],
+          };
+        }
+      }
+      return data;
+    }
+    console.log('  GP file changed -- resetting practice state.');
+  }
+
+  const state = {
+    version: 1,
+    gpFile: path.basename(gpPath),
+    gpFileHash: gpHash,
+    baseTempo,
+    sessionCount: 0,
+    lastSession: null,
+    chunks: {},
+  };
+
+  for (const chunk of chunks) {
+    state.chunks[chunk.id] = {
+      barRange: chunk.barRange,
+      difficulty: chunk.difficulty,
+      masteryLevel: 0,
+      lastPracticed: null,
+      nextReview: null,
+      history: [],
+    };
+  }
+
+  return state;
+}
+
+function saveState(state, gpPath, outputDir) {
+  const sp = statePath(gpPath, outputDir);
+  const dir = path.dirname(sp);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(sp, JSON.stringify(state, null, 2) + '\n');
+}
+
 function generateChunkClick(score, chunk, targetBpm, sampleRate = 48000) {
   const clicks = [];
   const startIdx = chunk.barRange[0] - 1;
