@@ -9,8 +9,6 @@ import { initGenerateTab } from './generate-tab.mjs';
 import { startSession, isRunnerActive } from './session-runner.mjs';
 
 async function boot() {
-  const infoResp = await fetch('/api/file-info').then(r => r.json());
-
   initAlphaTab();
   initTabs();
   initPlayback();
@@ -23,6 +21,14 @@ async function boot() {
     }
   });
 
+  let infoResp;
+  try {
+    const r = await fetch('/api/file-info');
+    infoResp = await r.json();
+  } catch {
+    infoResp = { error: 'Server unavailable' };
+  }
+
   if (infoResp.error) {
     state.fileLoaded = false;
     document.getElementById('fileInfo').textContent = 'No file loaded';
@@ -33,20 +39,26 @@ async function boot() {
   } else {
     state.fileLoaded = true;
     state.fileInfo = infoResp;
-    const [analyzeResp, sessionResp, progressResp] = await Promise.all([
-      fetch('/api/analyze').then(r => r.json()),
-      fetch('/api/session').then(r => r.json()),
-      fetch('/api/progress').then(r => r.json()),
-    ]);
-    state.analyzeData = analyzeResp;
-    state.sessionData = sessionResp;
-    state.progressData = progressResp;
+    try {
+      const [analyzeResp, sessionResp, progressResp] = await Promise.all([
+        fetch('/api/analyze').then(r => r.json()),
+        fetch('/api/session').then(r => r.json()),
+        fetch('/api/progress').then(r => r.json()),
+      ]);
+      state.analyzeData = analyzeResp;
+      state.sessionData = sessionResp;
+      state.progressData = progressResp;
 
-    updateFileInfoBar();
-    renderSessionTab();
-    renderChunksTab();
-    renderProgressTab();
-    loadAlphaTabFile();
+      updateFileInfoBar();
+      renderSessionTab();
+      renderChunksTab();
+      renderProgressTab();
+      loadAlphaTabFile();
+    } catch (err) {
+      console.error('[Practice] Failed to load session data:', err);
+      document.getElementById('fileInfo').textContent = state.fileInfo.title || 'File loaded';
+      document.getElementById('pane-session').innerHTML = '<div class="gen-empty">Failed to load session data. Try refreshing.</div>';
+    }
   }
 }
 

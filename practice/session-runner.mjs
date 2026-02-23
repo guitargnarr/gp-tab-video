@@ -167,10 +167,7 @@ function highlightCurrentItem() {
   for (let i = 0; i < runner.currentIdx; i++) doneIndices.add(i);
 
   runner.items.forEach((item, idx) => {
-    let el;
-    if (item.type === 'chunk') {
-      el = document.querySelector(`.session-item[data-chunk-id="${item.chunkId}"]`);
-    }
+    const el = findItemRow(item);
     if (!el) return;
 
     if (idx === runner.currentIdx) {

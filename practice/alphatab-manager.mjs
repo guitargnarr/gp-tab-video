@@ -139,8 +139,7 @@ export function renderChunkOverlays() {
 }
 
 export function highlightChunk(chunkId) {
-  // Lazy import to avoid circular dep -- playback imports from here are one-way
-  const { stopSectionPlayback } = await_stopSectionPlayback();
+  const stopSectionPlayback = _stopSectionPlayback;
 
   if (state.playingChunkId && state.playingChunkId !== chunkId) {
     stopSectionPlayback();
@@ -183,4 +182,3 @@ export function highlightChunk(chunkId) {
 // and highlightChunk needs stopSectionPlayback. We use a setter pattern.
 let _stopSectionPlayback = () => {};
 export function setStopSectionPlayback(fn) { _stopSectionPlayback = fn; }
-function await_stopSectionPlayback() { return { stopSectionPlayback: _stopSectionPlayback }; }

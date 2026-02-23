@@ -5,12 +5,21 @@ import { highlightChunk } from './alphatab-manager.mjs';
 import { renderProgressTab } from './progress-tab.mjs';
 
 export async function rateChunk(chunkId, rating, rowEl) {
-  const resp = await fetch('/api/rate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ratings: { [chunkId]: rating } }),
-  });
-  const result = await resp.json();
+  let result;
+  try {
+    const resp = await fetch('/api/rate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ratings: { [chunkId]: rating } }),
+    });
+    result = await resp.json();
+  } catch (err) {
+    console.error('[Practice] Rating failed:', err);
+    const np = document.getElementById('nowPlaying');
+    if (np) { np.textContent = 'Rating failed -- check connection'; np.style.color = '#ff5555'; }
+    setTimeout(() => { if (np) { np.textContent = ''; np.style.color = ''; } }, 3000);
+    return;
+  }
   if (!result.ok) return;
 
   state.progressData.state = result.state;
@@ -31,10 +40,9 @@ export async function rateChunk(chunkId, rating, rowEl) {
   rowEl.classList.add('rated');
 
   const np = document.getElementById('nowPlaying');
-  const prev = np.textContent;
-  np.textContent = 'Saved';
-  np.style.color = '#44cc44';
-  setTimeout(() => { np.textContent = prev; np.style.color = ''; }, 1500);
+  const prev = np ? np.textContent : '';
+  if (np) { np.textContent = 'Saved'; np.style.color = '#44cc44'; }
+  setTimeout(() => { if (np) { np.textContent = prev; np.style.color = ''; } }, 1500);
 
   renderProgressTab();
   emit('rating-saved', { chunkId, rating });
@@ -48,6 +56,8 @@ on('keyboard-rate', ({ chunkId, rating, rowEl }) => {
 export function renderSessionTab() {
   const pane = document.getElementById('pane-session');
   const session = state.sessionData.session;
+  // Clear stale context ranges from previous render/generate cycles
+  state.analyzeData._contextRanges = {};
   let html = '<button id="startSessionBtn">Start Session (Coach Mode)</button>';
 
   // Phase 1: Isolation

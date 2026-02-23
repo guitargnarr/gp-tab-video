@@ -27,7 +27,8 @@ export function stopSectionPlayback() {
   document.querySelectorAll('.btn-click.playing, .btn-click-small.playing').forEach(el => {
     el.classList.remove('playing');
   });
-  document.getElementById('nowPlaying').textContent = '';
+  const np = document.getElementById('nowPlaying');
+  if (np) np.textContent = '';
   emit('playback-stopped');
 }
 
