@@ -739,6 +739,9 @@ async function cmdServe(initialScore, initialTrack, opts, initialDurationMs) {
     if (url.pathname === '/api/session') {
       if (!score) { noFileResponse(res); return; }
       const currentState = loadState(gpPath, opts.output, chunks, score.tempo);
+      currentState.sessionCount++;
+      currentState.lastSession = new Date().toISOString();
+      saveState(currentState, gpPath, opts.output);
       const session = buildSession(chunks, currentState, score.tempo, opts.sessionTime);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ session, masteryLevels: MASTERY_LEVELS, tempoTiers: TEMPO_TIERS }));

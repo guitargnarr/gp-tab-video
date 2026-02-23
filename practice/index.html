@@ -127,6 +127,13 @@
     .session-item .chunk-label { font-size: 12px; font-weight: 600; color: #ddd; }
     .session-item .chunk-sublabel { font-size: 11px; color: #888; margin-top: 1px; }
     .session-item .chunk-meta { font-size: 10px; color: #555; margin-top: 2px; }
+    .rep-adj {
+      display: inline-block; width: 16px; height: 16px; line-height: 14px;
+      text-align: center; font-size: 11px; font-weight: 700;
+      background: #333; color: #aaa; border: 1px solid #444; border-radius: 3px;
+      cursor: pointer; padding: 0; vertical-align: middle;
+    }
+    .rep-adj:hover { background: #444; color: #fff; }
     .session-item .review-tag {
       display: inline-block; background: #3a2a00; color: #ffaa33; font-size: 9px;
       padding: 1px 5px; border-radius: 3px; font-weight: 600; margin-left: 6px;
@@ -295,6 +302,7 @@
     <span class="speed-val">%</span>
   </div>
   <button id="metronomeBtn" title="Toggle metronome (M)">Met</button>
+  <span id="beatDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#333;transition:background 0.05s;vertical-align:middle"></span>
   <button id="playBtn" disabled title="Play/pause full piece (Space)">Play</button>
   <button id="stopBtn" disabled title="Stop playback (Esc)">Stop</button>
   <button id="helpBtn" title="Keyboard shortcuts" style="font-size:11px;padding:5px 8px">?</button>
@@ -356,6 +364,7 @@
   let sectionStartTick = 0;
   let nowPlayingLabel = '';
   let nowPlayingBpm = 0;
+  let customReps = {};  // chunkId -> custom rep count
 
   let fileLoaded = false;
 
@@ -482,11 +491,26 @@
       }
     });
 
-    // Track rep count during looped section playback
+    // Track rep count and beat indicator during playback
+    let lastBeatNum = -1;
+    let beatDotTimer = null;
+    const beatDot = document.getElementById('beatDot');
     atApi.playerPositionChanged.on((e) => {
-      if (!playingChunkId || repTotal <= 0) return;
       const tick = e.currentTick;
-      // Detect loop restart: tick jumps backwards near section start
+
+      // Beat indicator (960 ticks per quarter note in alphaTab)
+      const beatNum = Math.floor(tick / 960);
+      if (beatNum !== lastBeatNum) {
+        lastBeatNum = beatNum;
+        if (metronomeOn && beatDot) {
+          beatDot.style.background = '#ff5555';
+          clearTimeout(beatDotTimer);
+          beatDotTimer = setTimeout(() => { beatDot.style.background = '#333'; }, 120);
+        }
+      }
+
+      // Rep counter for looped section playback
+      if (!playingChunkId || repTotal <= 0) { lastTickPos = tick; return; }
       if (lastTickPos > sectionStartTick + 500 && tick <= sectionStartTick + 100) {
         repCount++;
         updateRepDisplay();
@@ -621,9 +645,13 @@
   function toggleSectionPlay(chunkId, buttonEl) {
     if (!atApi || !atApi.score) return;
 
-    // If already playing this chunk, stop
+    // If already playing this chunk, pause/resume
     if (playingChunkId === chunkId) {
-      stopSectionPlayback();
+      if (atApi.playerState === alphaTab.synth.PlayerState.Playing) {
+        atApi.pause();
+      } else {
+        atApi.play(); // resume from paused position
+      }
       return;
     }
 
@@ -659,9 +687,9 @@
     sectionStartTick = startTick;
     lastTickPos = startTick;
     repCount = 0;
-    // Find reps and BPM from session isolation items
+    // Find reps and BPM from session isolation items (custom reps override)
     const sessionItem = sessionData?.session?.isolation?.find(i => i.chunk.id === chunkId);
-    repTotal = sessionItem?.reps || 0;
+    repTotal = customReps[chunkId] || sessionItem?.reps || 0;
     nowPlayingLabel = chunkLabel(chunk);
     nowPlayingBpm = sessionItem?.bpm || 0;
     updateRepDisplay();
@@ -750,6 +778,13 @@
     // Mark session item as rated
     rowEl.classList.add('rated');
 
+    // Flash save indicator
+    const np = document.getElementById('nowPlaying');
+    const prev = np.textContent;
+    np.textContent = 'Saved';
+    np.style.color = '#44cc44';
+    setTimeout(() => { np.textContent = prev; np.style.color = ''; }, 1500);
+
     renderProgressTab();
   }
 
@@ -811,7 +846,7 @@
           <div class="chunk-body">
             <div class="chunk-label">${chunkLabel(chunk)}${review}</div>
             <div class="chunk-sublabel">${chunkSubLabel(chunk)}</div>
-            <div class="chunk-meta">${item.level} &middot; ${item.bpm} BPM (${Math.round(item.tempoPct * 100)}%) &middot; ${item.reps} reps</div>
+            <div class="chunk-meta">${item.level} &middot; ${item.bpm} BPM (${Math.round(item.tempoPct * 100)}%) &middot; <button class="rep-adj" data-chunk-id="${chunk.id}" data-delta="-1" title="Fewer reps">-</button> <span class="rep-count" data-chunk-id="${chunk.id}">${item.reps}</span> reps <button class="rep-adj" data-chunk-id="${chunk.id}" data-delta="1" title="More reps">+</button></div>
           </div>
           <div class="chunk-controls">
             <button class="btn-click" data-chunk-id="${chunk.id}" title="Toggle click track">&#9654;</button>
@@ -920,8 +955,26 @@
     });
 
     pane.querySelectorAll('.session-item[data-chunk-id]').forEach(el => {
-      el.querySelector('.chunk-body')?.addEventListener('click', () => {
+      el.querySelector('.chunk-body')?.addEventListener('click', (e) => {
+        if (e.target.closest('.rep-adj')) return;
         highlightChunk(el.dataset.chunkId);
+      });
+    });
+
+    // Rep adjustment +/- buttons
+    pane.querySelectorAll('.rep-adj').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cid = btn.dataset.chunkId;
+        const delta = parseInt(btn.dataset.delta);
+        const span = pane.querySelector(`.rep-count[data-chunk-id="${cid}"]`);
+        if (!span) return;
+        const current = parseInt(span.textContent) || 1;
+        const newVal = Math.max(1, Math.min(20, current + delta));
+        span.textContent = newVal;
+        customReps[cid] = newVal;
+        // Update repTotal if this chunk is currently playing
+        if (playingChunkId === cid) repTotal = newVal;
       });
     });
 
@@ -1284,6 +1337,16 @@
             <span class="tempo-val" id="genTempoVal">120</span>
           </div>
         </div>
+        <div class="gen-field">
+          <label>Preset</label>
+          <div style="display:flex;gap:6px">
+            <select id="genPreset" style="flex:1;background:#222;color:#ddd;border:1px solid #444;border-radius:4px;padding:6px 8px;font-size:13px;font-family:inherit">
+              <option value="">-- none --</option>
+            </select>
+            <button class="gen-btn" id="savePresetBtn" style="padding:6px 10px;font-size:11px;background:#444;margin-top:0">Save</button>
+            <button class="gen-btn" id="deletePresetBtn" style="padding:6px 10px;font-size:11px;background:#333;margin-top:0">Del</button>
+          </div>
+        </div>
         <div style="display:flex;gap:8px">
           <button class="gen-btn" id="randomBtn" style="flex:0 0 auto;padding:10px 14px;background:#444;font-size:12px" title="Random root/scale/pattern/position">Surprise Me</button>
           <button class="gen-btn" id="genBtn" style="flex:1">Generate & Load</button>
@@ -1339,6 +1402,68 @@
       document.getElementById('genPattern').dispatchEvent(new Event('change'));
       updateFretboard();
     });
+
+    // --- Presets (localStorage) ---
+    const PRESET_KEY = 'practice_presets';
+    const FORM_IDS = ['genRoot', 'genScale', 'genPattern', 'genPosition', 'genTuning', 'genBars', 'genTempo'];
+
+    function loadPresets() {
+      try { return JSON.parse(localStorage.getItem(PRESET_KEY)) || {}; } catch { return {}; }
+    }
+    function savePresets(presets) { localStorage.setItem(PRESET_KEY, JSON.stringify(presets)); }
+
+    function refreshPresetDropdown() {
+      const sel = document.getElementById('genPreset');
+      const presets = loadPresets();
+      sel.innerHTML = '<option value="">-- none --</option>';
+      for (const name of Object.keys(presets).sort()) {
+        sel.innerHTML += `<option value="${name}">${name}</option>`;
+      }
+    }
+
+    function getFormValues() {
+      const vals = {};
+      FORM_IDS.forEach(id => { vals[id] = document.getElementById(id)?.value; });
+      return vals;
+    }
+
+    function applyFormValues(vals) {
+      FORM_IDS.forEach(id => {
+        const el = document.getElementById(id);
+        if (el && vals[id] != null) el.value = vals[id];
+      });
+      document.getElementById('genTempoVal').textContent = document.getElementById('genTempo').value;
+      document.getElementById('genPattern').dispatchEvent(new Event('change'));
+      updateFretboard();
+    }
+
+    document.getElementById('savePresetBtn').addEventListener('click', () => {
+      const name = prompt('Preset name:');
+      if (!name) return;
+      const presets = loadPresets();
+      presets[name] = getFormValues();
+      savePresets(presets);
+      refreshPresetDropdown();
+      document.getElementById('genPreset').value = name;
+    });
+
+    document.getElementById('deletePresetBtn').addEventListener('click', () => {
+      const name = document.getElementById('genPreset').value;
+      if (!name) return;
+      const presets = loadPresets();
+      delete presets[name];
+      savePresets(presets);
+      refreshPresetDropdown();
+    });
+
+    document.getElementById('genPreset').addEventListener('change', () => {
+      const name = document.getElementById('genPreset').value;
+      if (!name) return;
+      const presets = loadPresets();
+      if (presets[name]) applyFormValues(presets[name]);
+    });
+
+    refreshPresetDropdown();
 
     // Fretboard updates on dropdown change
     ['genRoot', 'genScale', 'genPosition', 'genTuning'].forEach(id => {
@@ -1441,7 +1566,7 @@
       }
     }
 
-    // Scale note dots
+    // Scale note dots (interactive with tooltips)
     for (const note of notes) {
       let x;
       if (note.fret === 0) {
@@ -1450,14 +1575,17 @@
         x = leftPad + (note.fret - displayMin + 0.5) * fretSpacing;
       }
       const y = topPad + (5 - note.string) * stringSpacing;
+      const tip = `${note.note} (string ${note.string + 1}, fret ${note.fret}, finger ${note.finger})${note.is_root ? ' — ROOT' : ''}`;
 
+      svg += `<g style="cursor:pointer" class="fb-note" data-note="${note.note}" data-fret="${note.fret}" data-string="${note.string}">`;
       if (note.is_root) {
-        svg += `<circle cx="${x}" cy="${y}" r="${dotR}" fill="#ff5555"/>`;
-        svg += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" font-size="9" fill="#fff" font-weight="700" font-family="monospace">${note.finger}</text>`;
+        svg += `<circle cx="${x}" cy="${y}" r="${dotR}" fill="#ff5555"/><title>${tip}</title>`;
+        svg += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" font-size="9" fill="#fff" font-weight="700" font-family="monospace" pointer-events="none">${note.finger}</text>`;
       } else {
-        svg += `<circle cx="${x}" cy="${y}" r="${dotR}" fill="#1a1a1a" stroke="#ff5555" stroke-width="1.5"/>`;
-        svg += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" font-size="9" fill="#ff5555" font-weight="600" font-family="monospace">${note.finger}</text>`;
+        svg += `<circle cx="${x}" cy="${y}" r="${dotR}" fill="#1a1a1a" stroke="#ff5555" stroke-width="1.5"/><title>${tip}</title>`;
+        svg += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" font-size="9" fill="#ff5555" font-weight="600" font-family="monospace" pointer-events="none">${note.finger}</text>`;
       }
+      svg += `</g>`;
     }
 
     svg += '</svg>';
