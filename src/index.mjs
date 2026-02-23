@@ -220,6 +220,7 @@ function parseArgs(argv) {
     template: null,    // template (JSON or built-in name) for compositing
     title: null,       // song title for template text layers
     artist: null,      // artist name for template text layers
+    thumbnail: null,   // background image for 4:5 grid thumbnail (Instagram)
   };
 
   const positional = [];
@@ -263,6 +264,8 @@ function parseArgs(argv) {
       opts.watermark = argv[++i];
     } else if (a === '--intro') {
       opts.intro = true;
+    } else if (a === '--thumbnail' && argv[i + 1]) {
+      opts.thumbnail = argv[++i];
     } else if (!a.startsWith('--')) {
       positional.push(a);
     }
@@ -798,6 +801,75 @@ async function main() {
     finalOutput = compOutput;
   }
 
+  // Generate 4:5 grid thumbnail if --thumbnail provided
+  // Composites a viewport-width crop of the tab onto the background image
+  let thumbnailOutput = null;
+  if (opts.thumbnail) {
+    const sharp = (await import('sharp')).default;
+    const thumbWidth = 1080;
+    const thumbHeight = 1350;
+    const thumbPath = finalOutput.replace(/\.\w+$/, '_thumb.jpg');
+
+    // Load background, resize/crop to 4:5
+    const bg = sharp(path.resolve(opts.thumbnail))
+      .resize(thumbWidth, thumbHeight, { fit: 'cover', position: 'center' });
+
+    // Crop the first viewport-width section from the strip (opening bars)
+    // Detect and trim alphaTab watermark below the staff by finding the gap
+    const s = strips[0];
+    const cropWidth = Math.min(thumbWidth, s.totalWidth);
+    const stripImg = sharp(s.pngBuffer).ensureAlpha();
+    const stripMeta = await stripImg.metadata();
+    const stripRaw = await stripImg.raw().toBuffer();
+    const sw = stripMeta.width, sh = stripMeta.height, sch = 4;
+    const sRowHas = (y) => {
+      for (let x = 0; x < Math.min(500, sw); x += 5) {
+        const off = (y * sw + x) * sch;
+        if (stripRaw[off+3] > 10 && (stripRaw[off] > 30 || stripRaw[off+1] > 30 || stripRaw[off+2] > 30)) return true;
+      }
+      return false;
+    };
+    let trimHeight = sh;
+    let bottomRow = -1;
+    for (let y = sh - 1; y >= 0; y--) { if (sRowHas(y)) { bottomRow = y; break; } }
+    if (bottomRow > 0) {
+      for (let y = bottomRow; y >= 0; y--) {
+        if (!sRowHas(y)) {
+          let staffAbove = false;
+          for (let y2 = y - 1; y2 >= Math.max(0, y - 20); y2--) { if (sRowHas(y2)) { staffAbove = true; break; } }
+          if (staffAbove) { trimHeight = y; break; }
+        }
+      }
+    }
+    const croppedStrip = await sharp(s.pngBuffer)
+      .extract({ left: 0, top: 0, width: cropWidth, height: trimHeight })
+      .resize(thumbWidth, null, { fit: 'inside' })
+      .toBuffer();
+    const croppedMeta = await sharp(croppedStrip).metadata();
+
+    // Position tab at bottom with margin
+    const tabMargin = 50;
+    const thumbTabY = thumbHeight - croppedMeta.height - tabMargin;
+
+    // Dark semi-transparent band behind the tab for legibility
+    const bandHeight = croppedMeta.height + tabMargin * 2;
+    const bandY = thumbHeight - bandHeight;
+    const band = await sharp({
+      create: { width: thumbWidth, height: bandHeight, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 140 } },
+    }).png().toBuffer();
+
+    await bg
+      .composite([
+        { input: band, top: bandY, left: 0 },
+        { input: croppedStrip, top: thumbTabY, left: 0 },
+      ])
+      .jpeg({ quality: 92 })
+      .toFile(thumbPath);
+
+    thumbnailOutput = thumbPath;
+    console.log(`\nThumbnail: ${thumbPath} (${thumbWidth}x${thumbHeight} 4:5)`);
+  }
+
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   const orientation = opts.vertical ? '9:16 vertical' : '16:9 horizontal';
   console.log(`\nDone in ${elapsed}s!`);
@@ -807,6 +879,7 @@ async function main() {
   console.log(`  Resolution: ${viewportWidth}x${outputHeight} @ ${opts.fps}fps (${orientation})`);
   if (opts.platform) console.log(`  Platform: ${opts.platform}`);
   if (opts.template) console.log(`  Template: ${opts.template}`);
+  if (thumbnailOutput) console.log(`  Thumbnail: ${thumbnailOutput}`);
   console.log(`\nOpen with: open '${finalOutput}'`);
 }
 
