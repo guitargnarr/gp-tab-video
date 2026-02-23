@@ -29,10 +29,16 @@
     .speed-control label { font-size: 11px; color: #888; }
     .speed-control input[type="range"] { width: 120px; accent-color: #c33; height: 3px; }
     .speed-control .speed-val { font-size: 11px; color: #ccc; min-width: 40px; }
+    .speed-input {
+      width: 42px; background: #222; color: #ccc; border: 1px solid #444;
+      border-radius: 3px; padding: 2px 4px; font-size: 11px; text-align: center;
+      font-family: inherit;
+    }
+    .speed-input:focus { outline: none; border-color: #ff5555; }
 
     .now-playing {
-      font-size: 11px; color: #ff5555; max-width: 180px;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-size: 11px; color: #ff5555;
+      white-space: nowrap; flex-shrink: 1; min-width: 0;
     }
 
     /* --- Main layout --- */
@@ -106,6 +112,9 @@
     }
     .session-item:hover { background: #282828; border-color: #3a3a3a; }
     .session-item.selected { border-color: #c33; background: #2a1a1a; }
+    .session-item.rated { opacity: 0.6; }
+    .session-item.rated .chunk-label::after { content: ' \2713'; color: #44cc44; font-size: 11px; }
+    .session-item.rated:hover { opacity: 1; }
 
     .session-item .chunk-color { width: 4px; flex-shrink: 0; }
     .session-item .chunk-body {
@@ -121,7 +130,7 @@
 
     .session-item .chunk-controls {
       display: flex; flex-direction: column; align-items: stretch;
-      border-left: 1px solid #333; flex-shrink: 0;
+      border-left: 1px solid #333; flex-shrink: 0; min-width: 80px;
     }
 
     /* Click toggle button */
@@ -139,10 +148,10 @@
       display: flex; flex-shrink: 0;
     }
     .rate-btn {
-      flex: 1; padding: 6px 0; font-size: 9px; font-weight: 700;
+      flex: 1; padding: 6px 4px; font-size: 9px; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.5px;
       cursor: pointer; border: none; color: #666; background: #2a2a2a;
-      transition: all 0.15s; text-align: center;
+      transition: all 0.15s; text-align: center; white-space: nowrap;
     }
     .rate-btn:hover { color: #fff; }
     .rate-btn.r1 { border-right: 1px solid #333; }
@@ -150,11 +159,12 @@
     .rate-btn.r3 { border-right: 1px solid #333; }
     .rate-btn.r3:hover { background: #ff8800; color: #fff; }
     .rate-btn.r5:hover { background: #44cc44; color: #fff; }
-    .rate-btn.chosen { opacity: 1; pointer-events: none; }
+    .rate-btn.chosen { opacity: 1; }
     .rate-btn.chosen.r1 { background: #ff4444; color: #fff; }
     .rate-btn.chosen.r3 { background: #ff8800; color: #fff; }
     .rate-btn.chosen.r5 { background: #44cc44; color: #fff; }
-    .rate-btn.dimmed { opacity: 0.25; pointer-events: none; }
+    .rate-btn.dimmed { opacity: 0.5; }
+    .rate-btn.dimmed:hover { opacity: 1; }
 
     /* --- Chunks tab --- */
     .chunk-row {
@@ -275,7 +285,8 @@
   <div class="speed-control">
     <label>Speed:</label>
     <input type="range" id="speedSlider" min="25" max="300" value="100" step="5">
-    <span class="speed-val" id="speedVal">100%</span>
+    <input type="number" id="speedInput" class="speed-input" min="25" max="300" step="5" value="100">
+    <span class="speed-val">%</span>
   </div>
   <button id="metronomeBtn" title="Toggle metronome (M)">Met</button>
   <button id="playBtn" disabled title="Play/pause full piece (Space)">Play</button>
@@ -332,6 +343,10 @@
   let selectedChunkId = null;
   let playingChunkId = null;  // chunk currently being played via alphaTab
   let metronomeOn = false;
+  let repCount = 0;
+  let repTotal = 0;
+  let lastTickPos = 0;
+  let sectionStartTick = 0;
 
   let fileLoaded = false;
 
@@ -458,6 +473,18 @@
       }
     });
 
+    // Track rep count during looped section playback
+    atApi.playerPositionChanged.on((e) => {
+      if (!playingChunkId || repTotal <= 0) return;
+      const tick = e.currentTick;
+      // Detect loop restart: tick jumps backwards near section start
+      if (lastTickPos > sectionStartTick + 500 && tick <= sectionStartTick + 100) {
+        repCount++;
+        updateRepDisplay();
+      }
+      lastTickPos = tick;
+    });
+
     // Enable play/stop once player is ready (soundfont loaded)
     atApi.playerReady.on(() => {
       document.getElementById('playBtn').disabled = false;
@@ -556,6 +583,15 @@
     }
   }
 
+  function updateRepDisplay() {
+    const el = document.getElementById('nowPlaying');
+    if (!el || !playingChunkId) return;
+    const base = el.textContent.replace(/ \(Rep \d+\/\d+\)/, '');
+    if (repTotal > 1) {
+      el.textContent = `${base} (Rep ${Math.min(repCount + 1, repTotal)}/${repTotal})`;
+    }
+  }
+
   // --- Section playback via alphaTab ---
   function stopSectionPlayback() {
     if (!atApi) return;
@@ -563,6 +599,8 @@
     atApi.playbackRange = null;
     atApi.isLooping = false;
     playingChunkId = null;
+    repCount = 0;
+    repTotal = 0;
     document.querySelectorAll('.btn-click.playing, .btn-click-small.playing').forEach(el => {
       el.classList.remove('playing');
     });
@@ -607,7 +645,49 @@
 
     playingChunkId = chunkId;
     buttonEl.classList.add('playing');
-    document.getElementById('nowPlaying').textContent = chunkLabel(chunk);
+    sectionStartTick = startTick;
+    lastTickPos = startTick;
+    repCount = 0;
+    // Find reps from session isolation items
+    const sessionItem = sessionData?.session?.isolation?.find(i => i.chunk.id === chunkId);
+    repTotal = sessionItem?.reps || 0;
+    const label = chunkLabel(chunk);
+    document.getElementById('nowPlaying').textContent = label;
+    updateRepDisplay();
+  }
+
+  function toggleBarRangePlay(barStart, barEnd, buttonEl) {
+    const rangeId = `ctx_${barStart}_${barEnd}`;
+    if (!atApi || !atApi.score) return;
+
+    if (playingChunkId === rangeId) {
+      stopSectionPlayback();
+      return;
+    }
+
+    if (atApi.playerState === alphaTab.synth.PlayerState.Playing) {
+      atApi.stop();
+    }
+    playingChunkId = null;
+    document.querySelectorAll('.btn-click.playing, .btn-click-small.playing').forEach(el => {
+      el.classList.remove('playing');
+    });
+
+    const startBarIdx = barStart - 1;
+    const endBarIdx = barEnd - 1;
+    const startTick = atApi.score.masterBars[startBarIdx].start;
+    const endMb = atApi.score.masterBars[endBarIdx];
+    const endTick = endMb.start + endMb.calculateDuration() - 1;
+
+    atApi.isLooping = true;
+    atApi.playbackRange = { startTick, endTick };
+    atApi.countInVolume = metronomeOn ? 1.0 : 0;
+    atApi.tickPosition = startTick;
+    atApi.play();
+
+    playingChunkId = rangeId;
+    buttonEl.classList.add('playing');
+    document.getElementById('nowPlaying').textContent = `Bars ${barStart}-${barEnd}`;
   }
 
   function toggleMetronome() {
@@ -646,6 +726,9 @@
       }
     });
 
+    // Mark session item as rated
+    rowEl.classList.add('rated');
+
     renderProgressTab();
   }
 
@@ -662,8 +745,11 @@
     const barStr = chunk.barRange[0] === chunk.barRange[1]
       ? `Bar ${chunk.barRange[0]}`
       : `Bars ${chunk.barRange[0]}-${chunk.barRange[1]}`;
-    const techStr = chunk.techniques.length > 0 ? chunk.techniques.join(', ') : '';
-    return barStr + (techStr ? ' -- ' + techStr : '');
+    const techStr = chunk.techniques?.length > 0 ? chunk.techniques.join(', ') : '';
+    if (techStr) return `${barStr} -- ${techStr}`;
+    // No techniques -- show difficulty instead of echoing the bar range
+    if (chunk.difficulty != null) return `Difficulty: ${chunk.difficulty}/100`;
+    return barStr;
   }
 
   function diffColor(diff) {
@@ -690,7 +776,7 @@
         <span>Phase 1: Isolation</span>
         <span class="phase-time">~${session.phaseTime.isolation} min</span>
       </div>
-      <div class="phase-desc">Slow tempos, clean execution. 30s rest between chunks.</div>`;
+      <div class="phase-desc">Slow tempos, clean execution. Ordered by priority (weakest first). 30s rest between chunks.</div>`;
 
     for (const item of session.isolation) {
       const chunk = item.chunk;
@@ -728,13 +814,20 @@
 
       for (const pair of session.context) {
         const ids = pair.chunks.map(c => chunkLabel(c)).join(' + ');
+        // Build a context range object so toggleSectionPlay can find the bars
+        const ctxId = `ctx_${pair.barRange[0]}_${pair.barRange[1]}`;
+        if (!analyzeData._contextRanges) analyzeData._contextRanges = {};
+        analyzeData._contextRanges[ctxId] = { barRange: pair.barRange };
         html += `
-          <div class="session-item" data-chunk-id="${pair.chunks[0].id}">
+          <div class="session-item session-context" data-context-id="${ctxId}">
             <div class="chunk-color" style="background:#666"></div>
             <div class="chunk-body">
               <div class="chunk-label">${ids}</div>
               <div class="chunk-sublabel">Bars ${pair.barRange[0]}-${pair.barRange[1]}</div>
               <div class="chunk-meta">${pair.bpm} BPM (${Math.round(pair.tempoPct * 100)}%)</div>
+            </div>
+            <div class="chunk-controls">
+              <button class="btn-click" data-context-id="${ctxId}" data-bar-start="${pair.barRange[0]}" data-bar-end="${pair.barRange[1]}" title="Play this section">&#9654;</button>
             </div>
           </div>`;
       }
@@ -790,7 +883,13 @@
     });
 
     pane.querySelectorAll('.btn-click').forEach(btn => {
-      btn.addEventListener('click', () => toggleSectionPlay(btn.dataset.chunkId, btn));
+      if (btn.dataset.contextId) {
+        btn.addEventListener('click', () => toggleBarRangePlay(
+          parseInt(btn.dataset.barStart), parseInt(btn.dataset.barEnd), btn
+        ));
+      } else {
+        btn.addEventListener('click', () => toggleSectionPlay(btn.dataset.chunkId, btn));
+      }
     });
 
     pane.querySelectorAll('.rate-btn').forEach(btn => {
@@ -950,25 +1049,43 @@
 
     document.getElementById('metronomeBtn').addEventListener('click', toggleMetronome);
 
-    speedSlider.addEventListener('input', () => {
-      const pct = parseInt(speedSlider.value);
-      speedVal.textContent = pct + '%';
+    const speedInput = document.getElementById('speedInput');
+    function setSpeed(pct) {
+      pct = Math.max(25, Math.min(300, pct));
+      speedSlider.value = pct;
+      speedInput.value = pct;
       if (atApi) atApi.playbackSpeed = pct / 100;
-    });
+    }
+    speedSlider.addEventListener('input', () => setSpeed(parseInt(speedSlider.value)));
+    speedInput.addEventListener('change', () => setSpeed(parseInt(speedInput.value) || 100));
+    speedInput.addEventListener('keydown', (e) => { if (e.code === 'Enter') { speedInput.blur(); } });
 
-    // Keyboard: Space to toggle play
+    // Keyboard shortcuts: work globally except when typing in text/number inputs
     document.addEventListener('keydown', (e) => {
-      if (e.code === 'Space' && !e.target.closest('input, button, select')) {
+      const isTyping = e.target.matches('input[type="text"], input[type="number"], textarea');
+      if (e.code === 'Space' && !isTyping) {
         e.preventDefault();
         playBtn.click();
       }
-      // Escape to stop section playback
       if (e.code === 'Escape') {
         stopSectionPlayback();
+        e.target.blur(); // release focus so shortcuts keep working
       }
-      // M to toggle metronome
-      if (e.code === 'KeyM' && !e.target.closest('input, button, select')) {
+      if (e.code === 'KeyM' && !isTyping) {
+        e.preventDefault();
         toggleMetronome();
+      }
+      // 1=Hard, 2=OK, 3=Clean -- rate the currently playing or selected chunk
+      if (!isTyping && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3')) {
+        const targetId = playingChunkId || selectedChunkId;
+        if (!targetId || targetId.startsWith('ctx_')) return;
+        const ratingMap = { Digit1: 1, Digit2: 3, Digit3: 5 };
+        const rating = ratingMap[e.code];
+        const row = document.querySelector(`.session-item[data-chunk-id="${targetId}"]`);
+        if (row) {
+          e.preventDefault();
+          rateChunk(targetId, rating, row);
+        }
       }
     });
   }
