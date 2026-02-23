@@ -322,6 +322,14 @@ function onRepCompleted({ repCount, repTotal }) {
   }
 }
 
+function onStopRequested({ setHandled }) {
+  // Intercept Escape/Stop during Coach Mode -- stop the entire session
+  if (runner.status !== 'IDLE') {
+    setHandled();
+    stopSession();
+  }
+}
+
 function onPlaybackStopped() {
   if (runner.status !== 'PLAYING') return;
   const item = runner.items[runner.currentIdx];
@@ -344,14 +352,27 @@ function transitionToRating() {
 
   // Highlight rating buttons for this item
   const item = runner.items[runner.currentIdx];
-  if (item?.type === 'chunk') {
-    const row = document.querySelector(`.session-item[data-chunk-id="${item.chunkId}"]`);
-    if (row) {
-      row.querySelectorAll('.rate-btn').forEach(btn => {
-        btn.style.animation = 'pulse-glow 1s infinite';
-      });
-    }
+  const row = findItemRow(item);
+  if (row) {
+    row.querySelectorAll('.rate-btn').forEach(btn => {
+      btn.style.animation = 'pulse-glow 1s infinite';
+    });
+    // Scroll the row into view so the user can see the pulsing buttons
+    row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
+}
+
+function findItemRow(item) {
+  if (!item) return null;
+  if (item.type === 'chunk') {
+    return document.querySelector(`.session-item[data-chunk-id="${item.chunkId}"]`);
+  }
+  if (item.isRunthrough) {
+    return document.querySelector('.session-item[data-runthrough="1"]');
+  }
+  // Context range
+  const ctxId = `ctx_${item.barStart}_${item.barEnd}`;
+  return document.querySelector(`.session-item[data-context-id="${ctxId}"]`);
 }
 
 function onRatingSaved({ chunkId, rating }) {
@@ -370,13 +391,11 @@ function onRatingSaved({ chunkId, rating }) {
   });
 
   // Clear pulse animation
-  if (item.type === 'chunk') {
-    const row = document.querySelector(`.session-item[data-chunk-id="${item.chunkId}"]`);
-    if (row) {
-      row.querySelectorAll('.rate-btn').forEach(btn => {
-        btn.style.animation = '';
-      });
-    }
+  const row = findItemRow(item);
+  if (row) {
+    row.querySelectorAll('.rate-btn').forEach(btn => {
+      btn.style.animation = '';
+    });
   }
 
   advanceToNext();
@@ -474,6 +493,7 @@ export function startSession() {
   on('rep-completed', onRepCompleted);
   on('playback-stopped', onPlaybackStopped);
   on('rating-saved', onRatingSaved);
+  on('stop-requested', onStopRequested);
 
   // Start elapsed timer update
   runner._timerInterval = setInterval(() => {
@@ -500,6 +520,7 @@ function resetRunner() {
   off('rep-completed', onRepCompleted);
   off('playback-stopped', onPlaybackStopped);
   off('rating-saved', onRatingSaved);
+  off('stop-requested', onStopRequested);
 
   if (runner._timerInterval) {
     clearInterval(runner._timerInterval);
@@ -513,13 +534,49 @@ function resetRunner() {
   document.querySelectorAll('.runner-interstitial, .runner-summary, .runner-rest-bar').forEach(el => el.remove());
 }
 
-// Handle keyboard rating during AWAITING_RATING
-on('keyboard-rate', ({ chunkId, rating, rowEl }) => {
-  if (runner.status === 'AWAITING_RATING') {
-    const item = runner.items[runner.currentIdx];
-    if (item && item.chunkId === chunkId) {
-      // rateChunk is already called by session-tab listener, which emits rating-saved
-      // So we just need to wait for the rating-saved event
+// Handle keyboard rating during Coach Mode AWAITING_RATING.
+// This intercepts before the normal keyboard-rate path so it works for
+// both chunk items (which also go through rateChunk) and range items
+// like run-through (which have no server-side chunk to rate).
+on('runner-keyboard-rate', ({ rating, setHandled }) => {
+  if (runner.status !== 'AWAITING_RATING') return;
+  const item = runner.items[runner.currentIdx];
+  if (!item) return;
+
+  setHandled();
+
+  if (item.type === 'chunk') {
+    // For chunks, trigger the normal rateChunk flow which emits rating-saved
+    const row = findItemRow(item);
+    if (row) rateChunk(item.chunkId, rating, row);
+    // onRatingSaved will handle advancing
+  } else {
+    // For range items (run-through), apply visual-only rating and advance directly
+    const row = findItemRow(item);
+    if (row) {
+      row.querySelectorAll('.rate-btn').forEach(btn => {
+        const r = parseInt(btn.dataset.rating);
+        if (r === rating) {
+          btn.classList.add('chosen'); btn.classList.remove('dimmed');
+        } else {
+          btn.classList.add('dimmed'); btn.classList.remove('chosen');
+        }
+      });
+      row.classList.add('rated');
     }
+    // Record result and advance (no server call for run-through)
+    runner.results.push({
+      chunkId: null,
+      label: item.label,
+      rating,
+      bpmStart: item.bpm,
+      bpmEnd: state.atApi ? Math.round(state.fileInfo.tempo * state.atApi.playbackSpeed) : item.bpm,
+      phase: item.phase,
+    });
+    // Clear pulse
+    if (row) {
+      row.querySelectorAll('.rate-btn').forEach(btn => { btn.style.animation = ''; });
+    }
+    advanceToNext();
   }
 });

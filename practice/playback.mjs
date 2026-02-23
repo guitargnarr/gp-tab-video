@@ -155,7 +155,9 @@ export function initPlayback() {
   });
 
   stopBtn.addEventListener('click', () => {
-    stopSectionPlayback();
+    let handled = false;
+    emit('stop-requested', { setHandled: () => { handled = true; } });
+    if (!handled) stopSectionPlayback();
   });
 
   document.getElementById('metronomeBtn').addEventListener('click', toggleMetronome);
@@ -191,7 +193,12 @@ export function initPlayback() {
       playBtn.click();
     }
     if (e.code === 'Escape') {
-      stopSectionPlayback();
+      // Emit stop-requested so the session runner can intercept during Coach Mode.
+      // If the runner is active, it calls stopSession() (which includes stopSectionPlayback).
+      // If idle, the event is unhandled and we fall through to stopSectionPlayback.
+      let handled = false;
+      emit('stop-requested', { setHandled: () => { handled = true; } });
+      if (!handled) stopSectionPlayback();
       e.target.blur();
     }
     if (e.code === 'KeyM' && !isTyping) {
@@ -199,14 +206,20 @@ export function initPlayback() {
       toggleMetronome();
     }
     if (!isTyping && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3')) {
-      const targetId = state.playingChunkId || state.selectedChunkId;
-      if (!targetId || targetId.startsWith('ctx_')) return;
       const ratingMap = { Digit1: 1, Digit2: 3, Digit3: 5 };
       const rating = ratingMap[e.code];
+
+      // First, let the session runner handle it if it's in AWAITING_RATING
+      let handled = false;
+      emit('runner-keyboard-rate', { rating, setHandled: () => { handled = true; } });
+      if (handled) { e.preventDefault(); return; }
+
+      // Manual mode: rate the currently playing or selected chunk
+      const targetId = state.playingChunkId || state.selectedChunkId;
+      if (!targetId || targetId.startsWith('ctx_')) return;
       const row = document.querySelector(`.session-item[data-chunk-id="${targetId}"]`);
       if (row) {
         e.preventDefault();
-        // Dispatch to session-tab's rateChunk via event bus
         emit('keyboard-rate', { chunkId: targetId, rating, rowEl: row });
       }
     }

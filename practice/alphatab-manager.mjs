@@ -48,13 +48,15 @@ export function initAlphaTab() {
       playBtn.textContent = 'Pause';
     } else {
       playBtn.textContent = 'Play';
+      // Only handle UI cleanup for external stops (e.g. alphaTab reaching end of range).
+      // Do NOT emit playback-stopped here -- stopSectionPlayback is the single emitter,
+      // preventing double-emission that corrupts the session runner state machine.
       if (e.stopped && state.playingChunkId) {
         state.playingChunkId = null;
         document.querySelectorAll('.btn-click.playing, .btn-click-small.playing').forEach(el => {
           el.classList.remove('playing');
         });
         document.getElementById('nowPlaying').textContent = '';
-        emit('playback-stopped');
       }
     }
   });
