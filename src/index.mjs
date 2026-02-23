@@ -26,6 +26,7 @@ const PLATFORM_PRESETS = {
   // YouTube landscape (16:9) -- standard playthrough format
   youtube: {
     width: 1920,
+    height: 1080,
     fps: 30,
     scale: 1.0,
     cursorWidth: 3,
@@ -37,6 +38,7 @@ const PLATFORM_PRESETS = {
   },
   'youtube-4k': {
     width: 3840,
+    height: 2160,
     fps: 30,
     scale: 1.3,
     cursorWidth: 5,
@@ -48,6 +50,7 @@ const PLATFORM_PRESETS = {
   // YouTube Shorts (9:16 vertical) -- 1080x1920, max 3 min
   'youtube-shorts': {
     width: 1080,
+    height: 1920,
     fps: 30,
     scale: 1.3,
     cursorWidth: 3,
@@ -64,6 +67,7 @@ const PLATFORM_PRESETS = {
   // IG caps at 1080p. 30fps recommended. Bitrate 4-6 Mbps per IG spec.
   'instagram': {
     width: 1080,
+    height: 1920,
     fps: 30,
     scale: 1.3,
     cursorWidth: 3,
@@ -80,6 +84,7 @@ const PLATFORM_PRESETS = {
   // Lower bitrate (3-4 Mbps). Tighter safe zone -- 250px top AND bottom.
   'instagram-story': {
     width: 1080,
+    height: 1920,
     fps: 30,
     scale: 1.3,
     cursorWidth: 3,
@@ -97,6 +102,7 @@ const PLATFORM_PRESETS = {
   // NOT 9:16. This is what appears in the main feed grid. 4:5 gets max engagement.
   'instagram-feed': {
     width: 1080,
+    height: 1350,
     fps: 30,
     scale: 1.3,
     cursorWidth: 3,
@@ -114,6 +120,7 @@ const PLATFORM_PRESETS = {
   // All slides MUST share the same aspect ratio.
   'instagram-carousel': {
     width: 1080,
+    height: 1350,
     fps: 30,
     scale: 1.3,
     cursorWidth: 3,
@@ -132,6 +139,7 @@ const PLATFORM_PRESETS = {
   // CRITICAL: FB bottom safe zone is 35% (~672px) -- much larger than IG (320px).
   'facebook': {
     width: 1080,
+    height: 1920,
     fps: 30,
     scale: 1.3,
     cursorWidth: 3,
@@ -148,6 +156,7 @@ const PLATFORM_PRESETS = {
   // Facebook Stories -- 1080x1920, 20 sec/card, 2 min total, splits at 15s
   'facebook-story': {
     width: 1080,
+    height: 1920,
     fps: 30,
     scale: 1.3,
     cursorWidth: 3,
@@ -168,6 +177,7 @@ const PLATFORM_PRESETS = {
   // Safe zone: 900x1492 centered -- 108px top, 320px bottom, 60px left, 120px right.
   'tiktok': {
     width: 1080,
+    height: 1920,
     fps: 30,
     scale: 1.3,
     cursorWidth: 3,
@@ -435,6 +445,20 @@ const outputFile =
   opts.output ||
   `output/${path.basename(opts.gpFile, path.extname(opts.gpFile))}_tab${defaultExt}`;
 
+// --- Full-frame overlay helper ---
+// Embeds a tab-strip-sized RGBA buffer into a full-frame transparent canvas
+function embedInFrameFast(stripBuffer, width, stripHeight, frameHeight, yOffset) {
+  const channels = 4;
+  const rowBytes = width * channels;
+  const frame = Buffer.alloc(width * frameHeight * channels); // zeros = transparent black
+  for (let y = 0; y < stripHeight; y++) {
+    const srcOffset = y * rowBytes;
+    const dstOffset = (yOffset + y) * rowBytes;
+    stripBuffer.copy(frame, dstOffset, srcOffset, srcOffset + rowBytes);
+  }
+  return frame;
+}
+
 // --- Cursor color parsing ---
 const CURSOR_COLORS = {
   red: { r: 255, g: 50, b: 50 },
@@ -561,9 +585,20 @@ async function main() {
     tabHeight = strips.reduce((h, s) => h + s.totalHeight, 0) + gap * (strips.length - 1);
   }
 
-  // Output dimensions: for standalone tab renders, use tab height
-  // For vertical presets without --video, still render just the tab strip
-  const outputHeight = tabHeight;
+  // Full-frame overlay mode: --platform + --transparent + no --video
+  // Produces a full-frame .mov with tab positioned in the platform's safe zone
+  const overlayMode = opts.transparent && opts.platform && !opts.video;
+  let frameHeight, tabY;
+  if (overlayMode) {
+    const preset = PLATFORM_PRESETS[opts.platform];
+    frameHeight = preset.height;
+    tabY = frameHeight - tabHeight - (opts.safeMarginBottom || 20);
+    console.log(`  Overlay mode: ${viewportWidth}x${frameHeight} frame, tab at y=${tabY}`);
+  } else {
+    frameHeight = tabHeight;
+    tabY = 0;
+  }
+  const outputHeight = frameHeight;
 
   const totalFrames = Math.ceil((songDurationMs / 1000) * opts.fps);
   console.log(`\nGenerating ${totalFrames} frames at ${opts.fps}fps (${viewportWidth}x${outputHeight})...`);
@@ -608,7 +643,10 @@ async function main() {
         sectionMarkers: s.sectionMarkers || [],
       }
     )) {
-      await encoder.write(buffer);
+      const outBuffer = overlayMode
+        ? embedInFrameFast(buffer, viewportWidth, s.totalHeight, frameHeight, tabY)
+        : buffer;
+      await encoder.write(outBuffer);
       frameCount++;
       if (frameCount % 100 === 0) {
         const pct = ((frameCount / totalFrames) * 100).toFixed(0);
@@ -636,7 +674,7 @@ async function main() {
       if (results.some((r) => r.done)) break;
 
       const composites = [];
-      let yOffset = 0;
+      let yOffset = overlayMode ? tabY : 0;
       for (let i = 0; i < results.length; i++) {
         const { buffer, height } = results[i].value;
         composites.push({
