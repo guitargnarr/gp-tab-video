@@ -101,7 +101,11 @@
       letter-spacing: 1px; color: #ff5555; margin-bottom: 4px;
       padding-bottom: 4px; border-bottom: 1px solid #333;
       display: flex; justify-content: space-between; align-items: baseline;
+      cursor: pointer; user-select: none;
     }
+    .phase-header .chevron { transition: transform 0.15s; display: inline-block; margin-right: 4px; font-size: 9px; }
+    .phase.collapsed .phase-header .chevron { transform: rotate(-90deg); }
+    .phase.collapsed .phase-body { display: none; }
     .phase-time { color: #666; font-weight: 400; font-size: 10px; text-transform: none; letter-spacing: 0; }
     .phase-desc { font-size: 11px; color: #555; margin-bottom: 8px; font-style: italic; }
 
@@ -281,16 +285,19 @@
   <span class="title">PRACTICE</span>
   <span class="file-info" id="fileInfo">Loading...</span>
   <div class="spacer"></div>
-  <span class="now-playing" id="nowPlaying"></span>
+  <span class="now-playing" id="nowPlaying" aria-live="polite"></span>
   <div class="speed-control">
     <label>Speed:</label>
+    <span style="font-size:9px;color:#555">25</span>
     <input type="range" id="speedSlider" min="25" max="300" value="100" step="5">
+    <span style="font-size:9px;color:#555">300</span>
     <input type="number" id="speedInput" class="speed-input" min="25" max="300" step="5" value="100">
     <span class="speed-val">%</span>
   </div>
   <button id="metronomeBtn" title="Toggle metronome (M)">Met</button>
   <button id="playBtn" disabled title="Play/pause full piece (Space)">Play</button>
   <button id="stopBtn" disabled title="Stop playback (Esc)">Stop</button>
+  <button id="helpBtn" title="Keyboard shortcuts" style="font-size:11px;padding:5px 8px">?</button>
 </div>
 
 <div class="main">
@@ -347,6 +354,8 @@
   let repTotal = 0;
   let lastTickPos = 0;
   let sectionStartTick = 0;
+  let nowPlayingLabel = '';
+  let nowPlayingBpm = 0;
 
   let fileLoaded = false;
 
@@ -586,10 +595,10 @@
   function updateRepDisplay() {
     const el = document.getElementById('nowPlaying');
     if (!el || !playingChunkId) return;
-    const base = el.textContent.replace(/ \(Rep \d+\/\d+\)/, '');
-    if (repTotal > 1) {
-      el.textContent = `${base} (Rep ${Math.min(repCount + 1, repTotal)}/${repTotal})`;
-    }
+    let text = nowPlayingLabel;
+    if (nowPlayingBpm > 0) text += ` · ${nowPlayingBpm} BPM`;
+    if (repTotal > 1) text += ` · Rep ${Math.min(repCount + 1, repTotal)}/${repTotal}`;
+    el.textContent = text;
   }
 
   // --- Section playback via alphaTab ---
@@ -601,6 +610,8 @@
     playingChunkId = null;
     repCount = 0;
     repTotal = 0;
+    nowPlayingLabel = '';
+    nowPlayingBpm = 0;
     document.querySelectorAll('.btn-click.playing, .btn-click-small.playing').forEach(el => {
       el.classList.remove('playing');
     });
@@ -648,11 +659,11 @@
     sectionStartTick = startTick;
     lastTickPos = startTick;
     repCount = 0;
-    // Find reps from session isolation items
+    // Find reps and BPM from session isolation items
     const sessionItem = sessionData?.session?.isolation?.find(i => i.chunk.id === chunkId);
     repTotal = sessionItem?.reps || 0;
-    const label = chunkLabel(chunk);
-    document.getElementById('nowPlaying').textContent = label;
+    nowPlayingLabel = chunkLabel(chunk);
+    nowPlayingBpm = sessionItem?.bpm || 0;
     updateRepDisplay();
   }
 
@@ -687,7 +698,15 @@
 
     playingChunkId = rangeId;
     buttonEl.classList.add('playing');
-    document.getElementById('nowPlaying').textContent = `Bars ${barStart}-${barEnd}`;
+    sectionStartTick = startTick;
+    lastTickPos = startTick;
+    repCount = 0;
+    repTotal = 0;
+    // Find BPM from context pairs
+    const ctxPair = sessionData?.session?.context?.find(p => p.barRange[0] === barStart && p.barRange[1] === barEnd);
+    nowPlayingLabel = `Bars ${barStart}-${barEnd}`;
+    nowPlayingBpm = ctxPair?.bpm || 0;
+    updateRepDisplay();
   }
 
   function toggleMetronome() {
@@ -720,9 +739,11 @@
       if (r === rating) {
         btn.classList.add('chosen');
         btn.classList.remove('dimmed');
+        btn.setAttribute('aria-pressed', 'true');
       } else {
         btn.classList.add('dimmed');
         btn.classList.remove('chosen');
+        btn.setAttribute('aria-pressed', 'false');
       }
     });
 
@@ -773,9 +794,10 @@
     // Phase 1: Isolation
     html += `<div class="phase">
       <div class="phase-header">
-        <span>Phase 1: Isolation</span>
+        <span><span class="chevron">&#9660;</span>Phase 1: Isolation</span>
         <span class="phase-time">~${session.phaseTime.isolation} min</span>
       </div>
+      <div class="phase-body">
       <div class="phase-desc">Slow tempos, clean execution. Ordered by priority (weakest first). 30s rest between chunks.</div>`;
 
     for (const item of session.isolation) {
@@ -794,22 +816,23 @@
           <div class="chunk-controls">
             <button class="btn-click" data-chunk-id="${chunk.id}" title="Toggle click track">&#9654;</button>
             <div class="rate-row" data-chunk-id="${chunk.id}">
-              <button class="rate-btn r1" data-rating="1" title="Struggled">Hard</button>
-              <button class="rate-btn r3" data-rating="3" title="Okay">OK</button>
-              <button class="rate-btn r5" data-rating="5" title="Clean">Clean</button>
+              <button class="rate-btn r1" data-rating="1" title="Struggled" aria-pressed="false">Hard</button>
+              <button class="rate-btn r3" data-rating="3" title="Okay" aria-pressed="false">OK</button>
+              <button class="rate-btn r5" data-rating="5" title="Clean" aria-pressed="false">Clean</button>
             </div>
           </div>
         </div>`;
     }
-    html += `</div>`;
+    html += `</div></div>`;
 
     // Phase 2: Context
     if (session.context.length > 0) {
       html += `<div class="phase">
         <div class="phase-header">
-          <span>Phase 2: Context</span>
+          <span><span class="chevron">&#9660;</span>Phase 2: Context</span>
           <span class="phase-time">~${session.phaseTime.context} min</span>
         </div>
+        <div class="phase-body">
         <div class="phase-desc">Connect adjacent chunks. Focus on transitions.</div>`;
 
       for (const pair of session.context) {
@@ -831,7 +854,7 @@
             </div>
           </div>`;
       }
-      html += `</div>`;
+      html += `</div></div>`;
     }
 
     // Phase 3: Interleaving
@@ -839,9 +862,10 @@
       const labels = session.interleaving.chunks.map(c => chunkLabel(c)).join(', ');
       html += `<div class="phase">
         <div class="phase-header">
-          <span>Phase 3: Interleaving</span>
+          <span><span class="chevron">&#9660;</span>Phase 3: Interleaving</span>
           <span class="phase-time">~${session.phaseTime.interleaving} min</span>
         </div>
+        <div class="phase-body">
         <div class="phase-desc">Random order. Forces recall.</div>
         <div class="session-item">
           <div class="chunk-color" style="background:#cc66ff"></div>
@@ -850,32 +874,51 @@
             <div class="chunk-sublabel">${labels}</div>
             <div class="chunk-meta">${session.interleaving.bpm} BPM (${Math.round(session.interleaving.tempoPct * 100)}%) &middot; 2 reps each</div>
           </div>
+          <div class="chunk-controls">
+            <button class="btn-click" data-context-id="shuffle" data-bar-start="1" data-bar-end="${fileInfo.bars}" title="Play all chunks">&#9654;</button>
+          </div>
         </div>
-      </div>`;
+      </div></div>`;
     }
 
     // Phase 4: Run-through
     html += `<div class="phase">
       <div class="phase-header">
-        <span>Phase 4: Run-through</span>
+        <span><span class="chevron">&#9660;</span>Phase 4: Run-through</span>
         <span class="phase-time">~${session.phaseTime.runthrough} min</span>
       </div>
+      <div class="phase-body">
       <div class="phase-desc">Full piece. Note problem spots.</div>
-      <div class="session-item">
+      <div class="session-item" data-runthrough="1">
         <div class="chunk-color" style="background:#55ff88"></div>
         <div class="chunk-body">
           <div class="chunk-label">Full piece</div>
           <div class="chunk-sublabel">All ${fileInfo.bars} bars</div>
           <div class="chunk-meta">${session.runthrough.bpm} BPM (${Math.round(session.runthrough.tempoPct * 100)}%)</div>
         </div>
+        <div class="chunk-controls">
+          <button class="btn-click" data-context-id="runthrough" data-bar-start="1" data-bar-end="${fileInfo.bars}" title="Play full piece">&#9654;</button>
+          <div class="rate-row" data-runthrough="1">
+            <button class="rate-btn r1" data-rating="1" title="Struggled">Hard</button>
+            <button class="rate-btn r3" data-rating="3" title="Okay">OK</button>
+            <button class="rate-btn r5" data-rating="5" title="Clean">Clean</button>
+          </div>
+        </div>
       </div>
-    </div>`;
+    </div></div>`;
 
     pane.innerHTML = html;
     attachSessionListeners(pane);
   }
 
   function attachSessionListeners(pane) {
+    // Collapsible phases
+    pane.querySelectorAll('.phase-header').forEach(header => {
+      header.addEventListener('click', () => {
+        header.closest('.phase').classList.toggle('collapsed');
+      });
+    });
+
     pane.querySelectorAll('.session-item[data-chunk-id]').forEach(el => {
       el.querySelector('.chunk-body')?.addEventListener('click', () => {
         highlightChunk(el.dataset.chunkId);
@@ -896,7 +939,22 @@
       btn.addEventListener('click', () => {
         const row = btn.closest('.session-item');
         const rateRow = btn.closest('.rate-row');
-        rateChunk(rateRow.dataset.chunkId, parseInt(btn.dataset.rating), row);
+        if (rateRow.dataset.runthrough) {
+          // Run-through rating: visual-only (no server chunk to rate)
+          const rating = parseInt(btn.dataset.rating);
+          rateRow.querySelectorAll('.rate-btn').forEach(b => {
+            if (parseInt(b.dataset.rating) === rating) {
+              b.classList.add('chosen'); b.classList.remove('dimmed');
+              b.setAttribute('aria-pressed', 'true');
+            } else {
+              b.classList.add('dimmed'); b.classList.remove('chosen');
+              b.setAttribute('aria-pressed', 'false');
+            }
+          });
+          row.classList.add('rated');
+        } else {
+          rateChunk(rateRow.dataset.chunkId, parseInt(btn.dataset.rating), row);
+        }
       });
     });
   }
@@ -926,7 +984,7 @@
             <div class="diff-bar-container">
               <div class="diff-bar-fill" style="width:${diff}%;background:${diffColor(diff)}"></div>
             </div>
-            <div class="diff-label">${diff}</div>
+            <div class="diff-label" title="Difficulty score (0-100)">${diff}</div>
           </div>
           <button class="btn-click-small" data-chunk-id="${chunk.id}" title="Toggle click track">&#9654;</button>
         </div>`;
@@ -1049,6 +1107,19 @@
 
     document.getElementById('metronomeBtn').addEventListener('click', toggleMetronome);
 
+    document.getElementById('helpBtn').addEventListener('click', () => {
+      alert(
+        'Keyboard Shortcuts\n\n' +
+        'Space — Play / Pause\n' +
+        'Escape — Stop\n' +
+        'M — Toggle metronome\n' +
+        '1 — Rate: Hard\n' +
+        '2 — Rate: OK\n' +
+        '3 — Rate: Clean\n\n' +
+        'Rating keys apply to the currently playing or selected chunk.'
+      );
+    });
+
     const speedInput = document.getElementById('speedInput');
     function setSpeed(pct) {
       pct = Math.max(25, Math.min(300, pct));
@@ -1063,7 +1134,8 @@
     // Keyboard shortcuts: work globally except when typing in text/number inputs
     document.addEventListener('keydown', (e) => {
       const isTyping = e.target.matches('input[type="text"], input[type="number"], textarea');
-      if (e.code === 'Space' && !isTyping) {
+      const isSelect = e.target.tagName === 'SELECT';
+      if (e.code === 'Space' && !isTyping && !isSelect) {
         e.preventDefault();
         playBtn.click();
       }
@@ -1212,7 +1284,10 @@
             <span class="tempo-val" id="genTempoVal">120</span>
           </div>
         </div>
-        <button class="gen-btn" id="genBtn">Generate & Load</button>
+        <div style="display:flex;gap:8px">
+          <button class="gen-btn" id="randomBtn" style="flex:0 0 auto;padding:10px 14px;background:#444;font-size:12px" title="Random root/scale/pattern/position">Surprise Me</button>
+          <button class="gen-btn" id="genBtn" style="flex:1">Generate & Load</button>
+        </div>
         <div class="gen-status" id="genStatus"></div>
         <div class="fretboard-container" id="fretboardContainer">
           <div class="fretboard-label">Scale Shape</div>
@@ -1248,6 +1323,22 @@
     });
 
     document.getElementById('genBtn').addEventListener('click', generateAndLoad);
+
+    document.getElementById('randomBtn').addEventListener('click', () => {
+      function pickRandom(selectId) {
+        const sel = document.getElementById(selectId);
+        if (!sel) return;
+        const opts = Array.from(sel.options);
+        sel.selectedIndex = Math.floor(Math.random() * opts.length);
+      }
+      pickRandom('genRoot');
+      pickRandom('genScale');
+      pickRandom('genPattern');
+      pickRandom('genPosition');
+      // Trigger pattern controls update and fretboard refresh
+      document.getElementById('genPattern').dispatchEvent(new Event('change'));
+      updateFretboard();
+    });
 
     // Fretboard updates on dropdown change
     ['genRoot', 'genScale', 'genPosition', 'genTuning'].forEach(id => {
@@ -1394,6 +1485,10 @@
   }
 
   async function generateAndLoad() {
+    // Warn if current session has ratings
+    const hasRatings = document.querySelectorAll('.session-item.rated').length > 0;
+    if (hasRatings && !confirm('This will reset your current session. Continue?')) return;
+
     const btn = document.getElementById('genBtn');
     const status = document.getElementById('genStatus');
     btn.disabled = true;
