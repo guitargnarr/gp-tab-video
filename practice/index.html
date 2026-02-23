@@ -245,6 +245,19 @@
     }
     .gen-empty strong { color: #aaa; }
 
+    /* --- Fretboard diagram --- */
+    .fretboard-container {
+      margin-top: 12px; background: #222; border-radius: 6px;
+      padding: 12px 8px; min-height: 80px;
+    }
+    .fretboard-label {
+      font-size: 10px; font-weight: 600; color: #888;
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+    }
+    .fretboard-container svg { display: block; width: 100%; height: auto; }
+    .fb-loading { text-align: center; color: #555; font-size: 11px; padding: 24px 0; }
+    .fb-error { text-align: center; color: #ff5555; font-size: 11px; padding: 16px 0; }
+
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -1084,6 +1097,10 @@
         </div>
         <button class="gen-btn" id="genBtn">Generate & Load</button>
         <div class="gen-status" id="genStatus"></div>
+        <div class="fretboard-container" id="fretboardContainer">
+          <div class="fretboard-label">Scale Shape</div>
+          <div class="fb-loading">Loading fretboard...</div>
+        </div>
       </div>
     `;
 
@@ -1114,6 +1131,149 @@
     });
 
     document.getElementById('genBtn').addEventListener('click', generateAndLoad);
+
+    // Fretboard updates on dropdown change
+    ['genRoot', 'genScale', 'genPosition', 'genTuning'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', updateFretboard);
+    });
+    updateFretboard();
+  }
+
+  // --- Fretboard SVG ---
+  let fretboardCache = {};
+  let fretboardAbort = null;
+
+  async function fetchBoxPosition(root, scale, position, tuning) {
+    const key = `${root}-${scale}-${position}-${tuning}`;
+    if (fretboardCache[key]) return fretboardCache[key];
+    if (fretboardAbort) fretboardAbort.abort();
+    fretboardAbort = new AbortController();
+    const params = new URLSearchParams({ root, scale, position, tuning });
+    const resp = await fetch(`/api/box-position?${params}`, { signal: fretboardAbort.signal });
+    if (!resp.ok) throw new Error(`API error ${resp.status}`);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    fretboardCache[key] = data;
+    return data;
+  }
+
+  function buildFretboardSVG(data) {
+    const notes = data.notes;
+    if (!notes || notes.length === 0) return '<div class="fb-error">No notes in this position</div>';
+
+    const frets = notes.map(n => n.fret);
+    let minFret = Math.min(...frets);
+    let maxFret = Math.max(...frets);
+    if (maxFret - minFret < 3) maxFret = minFret + 3;
+
+    const hasOpen = minFret === 0;
+    const displayMin = minFret;
+    const displayMax = maxFret + 1;
+    const fretCount = displayMax - displayMin + 1;
+
+    const leftPad = 30;
+    const topPad = 18;
+    const fretSpacing = 48;
+    const stringSpacing = 20;
+    const dotR = 8;
+    const width = leftPad + fretCount * fretSpacing + 10;
+    const height = topPad + 5 * stringSpacing + 16;
+
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">`;
+
+    // String labels (tuning names) on left -- string 5 (high e) at top
+    const tn = data.tuning_notes || ['E','A','D','G','B','E'];
+    for (let s = 0; s < 6; s++) {
+      const y = topPad + (5 - s) * stringSpacing;
+      svg += `<text x="${leftPad - 6}" y="${y + 4}" text-anchor="end" font-size="9" fill="#888" font-family="monospace">${tn[s]}</text>`;
+    }
+
+    // Fret numbers along top
+    for (let f = displayMin; f <= displayMax; f++) {
+      const x = leftPad + (f - displayMin) * fretSpacing;
+      if (f > 0 || hasOpen) {
+        svg += `<text x="${x + fretSpacing / 2}" y="${topPad - 5}" text-anchor="middle" font-size="8" fill="#555" font-family="monospace">${f}</text>`;
+      }
+    }
+
+    // Nut (thick bar at fret 0)
+    if (hasOpen) {
+      const x = leftPad + fretSpacing;
+      svg += `<line x1="${x}" y1="${topPad - 1}" x2="${x}" y2="${topPad + 5 * stringSpacing + 1}" stroke="#aaa" stroke-width="3"/>`;
+    }
+
+    // Fret lines
+    for (let f = displayMin; f <= displayMax; f++) {
+      const x = leftPad + (f - displayMin + (hasOpen && f === 0 ? 1 : (hasOpen ? 1 : 1))) * fretSpacing;
+      if (hasOpen && f === 0) continue; // nut already drawn
+      const xPos = leftPad + (f - displayMin + 1) * fretSpacing;
+      svg += `<line x1="${xPos}" y1="${topPad}" x2="${xPos}" y2="${topPad + 5 * stringSpacing}" stroke="#444" stroke-width="1"/>`;
+    }
+
+    // String lines
+    const strX1 = leftPad + (hasOpen ? fretSpacing : fretSpacing);
+    const strX2 = leftPad + fretCount * fretSpacing;
+    for (let s = 0; s < 6; s++) {
+      const y = topPad + s * stringSpacing;
+      const sw = s <= 1 ? 2 : (s <= 3 ? 1.5 : 1);
+      svg += `<line x1="${strX1}" y1="${y}" x2="${strX2}" y2="${y}" stroke="#555" stroke-width="${sw}"/>`;
+    }
+
+    // Fretboard position markers (3, 5, 7, 9, 12, 15, 17, 19, 21)
+    const singles = [3, 5, 7, 9, 15, 17, 19, 21];
+    const doubles = [12, 24];
+    for (let f = displayMin; f <= displayMax; f++) {
+      const cx = leftPad + (f - displayMin + 0.5) * fretSpacing;
+      if (singles.includes(f)) {
+        svg += `<circle cx="${cx}" cy="${topPad + 2.5 * stringSpacing}" r="2.5" fill="#2a2a2a"/>`;
+      }
+      if (doubles.includes(f)) {
+        svg += `<circle cx="${cx}" cy="${topPad + 1.5 * stringSpacing}" r="2.5" fill="#2a2a2a"/>`;
+        svg += `<circle cx="${cx}" cy="${topPad + 3.5 * stringSpacing}" r="2.5" fill="#2a2a2a"/>`;
+      }
+    }
+
+    // Scale note dots
+    for (const note of notes) {
+      let x;
+      if (note.fret === 0) {
+        x = leftPad + fretSpacing * 0.5;
+      } else {
+        x = leftPad + (note.fret - displayMin + 0.5) * fretSpacing;
+      }
+      const y = topPad + (5 - note.string) * stringSpacing;
+
+      if (note.is_root) {
+        svg += `<circle cx="${x}" cy="${y}" r="${dotR}" fill="#ff5555"/>`;
+        svg += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" font-size="9" fill="#fff" font-weight="700" font-family="monospace">${note.finger}</text>`;
+      } else {
+        svg += `<circle cx="${x}" cy="${y}" r="${dotR}" fill="#1a1a1a" stroke="#ff5555" stroke-width="1.5"/>`;
+        svg += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" font-size="9" fill="#ff5555" font-weight="600" font-family="monospace">${note.finger}</text>`;
+      }
+    }
+
+    svg += '</svg>';
+    return svg;
+  }
+
+  async function updateFretboard() {
+    const container = document.getElementById('fretboardContainer');
+    if (!container) return;
+    const root = document.getElementById('genRoot')?.value;
+    const scale = document.getElementById('genScale')?.value;
+    const position = document.getElementById('genPosition')?.value;
+    const tuning = document.getElementById('genTuning')?.value;
+    if (!root || !scale || !position || !tuning) return;
+
+    container.innerHTML = '<div class="fretboard-label">Scale Shape</div><div class="fb-loading">Loading fretboard...</div>';
+
+    try {
+      const data = await fetchBoxPosition(root, scale, position, tuning);
+      container.innerHTML = '<div class="fretboard-label">Scale Shape</div>' + buildFretboardSVG(data);
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      container.innerHTML = '<div class="fretboard-label">Scale Shape</div><div class="fb-error">Could not load fretboard</div>';
+    }
   }
 
   async function generateAndLoad() {

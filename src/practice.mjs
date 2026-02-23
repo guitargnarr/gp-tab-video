@@ -808,6 +808,28 @@ async function cmdServe(initialScore, initialTrack, opts, initialDurationMs) {
       return;
     }
 
+    // --- Box position (proxy to guitar-model-lab for fretboard viz) ---
+    if (url.pathname === '/api/box-position') {
+      const qs = url.search || '';
+      fetch(`${API_BASE}/box-position${qs}`)
+        .then(async (apiRes) => {
+          if (!apiRes.ok) {
+            const errText = await apiRes.text();
+            res.writeHead(apiRes.status, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: errText }));
+            return;
+          }
+          const data = await apiRes.json();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(data));
+        })
+        .catch(err => {
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        });
+      return;
+    }
+
     // --- Generate exercise (proxy to guitar-model-lab) ---
     if (url.pathname === '/api/generate' && req.method === 'POST') {
       let body = '';
